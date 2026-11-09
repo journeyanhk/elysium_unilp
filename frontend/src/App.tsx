@@ -1,24 +1,246 @@
-const SURF_LOGO_PATH = "M14.6875 13.333C15.0977 13.333 15.4859 13.5196 15.7422 13.8398L17.8721 16.502C17.9009 16.538 17.9308 16.5721 17.9619 16.6035C18.3091 16.9542 18.7529 17.3405 18.7529 17.834C18.7528 18.3399 18.3428 18.75 17.8369 18.75H17.5713C17.2123 18.75 16.8727 18.5869 16.6484 18.3066L15.4678 16.8311C14.761 15.9479 13.3369 16.4478 13.3369 17.5791V18.6494C13.3369 18.7062 13.2882 18.75 13.2314 18.75H11.3584C10.7127 18.75 10.1016 18.4564 9.69824 17.9521L8.80176 16.8311C8.09497 15.9477 6.66993 16.4478 6.66992 17.5791V18.6494C6.66991 18.7062 6.62124 18.75 6.56445 18.75H4.69141C4.04589 18.75 3.43548 18.4562 3.03223 17.9521L2.13477 16.8311C1.77885 16.3862 1.25293 15.931 1.25293 15.3613V13.4395C1.253 13.3822 1.29729 13.3331 1.35449 13.333C1.7646 13.3332 2.15295 13.5196 2.40918 13.8398L4.53809 16.502C5.24478 17.3853 6.66962 16.886 6.66992 15.7549V14.6836C6.67018 13.9379 7.27483 13.3332 8.02051 13.333C8.43065 13.333 8.81884 13.5197 9.0752 13.8398L11.2051 16.502C11.9097 17.3827 13.3282 16.8887 13.3369 15.7646V14.6836C13.3372 13.9378 13.9417 13.3331 14.6875 13.333ZM14.6875 6.66699C15.0978 6.66702 15.4859 6.85347 15.7422 7.17383L17.8721 9.83594C18.2276 10.2801 18.7526 10.7339 18.7529 11.3027V13.2266C18.7528 13.2833 18.7091 13.333 18.6523 13.333C18.2421 13.3329 17.8539 13.1465 17.5977 12.8262L15.4678 10.1641C14.7609 9.28113 13.3369 9.78089 13.3369 10.9121V11.9824C13.3369 12.7282 12.7321 13.3328 11.9863 13.333C11.5761 13.3329 11.187 13.1465 10.9307 12.8262L8.80176 10.1641C8.09497 9.28072 6.66993 9.78076 6.66992 10.9121V11.9824C6.66992 12.7284 6.06525 13.3329 5.31934 13.333C4.90908 13.3329 4.52094 13.1465 4.26465 12.8262L2.13477 10.1641C1.7788 9.71925 1.25293 9.26403 1.25293 8.69434V6.77344C1.253 6.71621 1.29728 6.6671 1.35449 6.66699C1.76461 6.66714 2.15295 6.85359 2.40918 7.17383L4.53809 9.83594C5.24487 10.7193 6.66989 10.2192 6.66992 9.08789V8.01758C6.66992 7.27168 7.27467 6.66722 8.02051 6.66699C8.43082 6.66699 8.81885 6.85345 9.0752 7.17383L11.2051 9.83594C11.9097 10.7163 13.3279 10.2223 13.3369 9.09863V8.01758C13.3369 7.27161 13.9416 6.6671 14.6875 6.66699ZM2.43555 1.25C2.79488 1.25 3.13499 1.41367 3.35938 1.69434L4.53809 3.16895C5.24485 4.05241 6.66991 3.55228 6.66992 2.4209V1.35059C6.66993 1.29391 6.71874 1.25017 6.77539 1.25H8.64844C9.29394 1.25 9.90438 1.5438 10.3076 2.04785L11.2051 3.16895C11.9097 4.04967 13.3282 3.55564 13.3369 2.43164V1.35059C13.3369 1.29391 13.3857 1.25017 13.4424 1.25H15.3154C15.9609 1.25 16.5714 1.5438 16.9746 2.04785L17.8721 3.16895C18.2275 3.61314 18.7526 4.06689 18.7529 4.63574V6.56055C18.7528 6.61728 18.7091 6.66699 18.6523 6.66699C18.2421 6.66688 17.8539 6.4795 17.5977 6.15918L15.4678 3.49805C14.761 2.61474 13.3371 3.11388 13.3369 4.24512V5.31543C13.3369 6.06126 12.7321 6.66673 11.9863 6.66699C11.5761 6.66693 11.187 6.47955 10.9307 6.15918L8.80176 3.49805C8.095 2.61474 6.67006 3.11388 6.66992 4.24512V5.31543C6.66992 6.06137 6.06525 6.66691 5.31934 6.66699C4.90908 6.66693 4.52094 6.47955 4.26465 6.15918L2.13477 3.49805C2.10558 3.46158 2.07543 3.42725 2.04395 3.39551C1.6966 3.04528 1.25293 2.6583 1.25293 2.16504C1.25317 1.65963 1.66348 1.25 2.16895 1.25H2.43555Z"
+import { useEffect, useMemo, useState } from 'react'
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
+import { api } from './lib/api'
+import { ADDR_RE, ELYSIUM_CHAIN_ID, connectWallet, getProviderName, getWalletChainId, switchToElysium } from './lib/wallet'
+import type { MemoryResponse, PoolResponse, Position, PositionsResponse, WhitelistResponse } from './lib/types'
+import BalancesRow from './components/BalancesRow'
+import PoolPanel from './components/PoolPanel'
+import PositionCard from './components/PositionCard'
+import WhitelistPanel from './components/WhitelistPanel'
+import MemoryPanel from './components/MemoryPanel'
+import { fmtTime, shortAddr, timeAgo } from './lib/format'
 
-function SurfLogo() {
+const j = (r: Response) => r.json()
+
+type SortKey = 'value' | 'fees' | 'apr' | 'tokenId'
+
+function Dashboard() {
+  const [address, setAddress] = useState('')
+  const [input, setInput] = useState('')
+  const [walletChainId, setWalletChainId] = useState<number | null>(null)
+  const [walletErr, setWalletErr] = useState('')
+  const [sortKey, setSortKey] = useState<SortKey>('value')
+  const [hideEmpty, setHideEmpty] = useState(true)
+
+  const providerName = getProviderName()
+
+  const positionsQ = useQuery<PositionsResponse>({
+    queryKey: ['positions', address],
+    queryFn: () => fetch(api(`positions?address=${address}`)).then(j),
+    enabled: !!address && ADDR_RE.test(address),
+    refetchInterval: 30000,
+  })
+
+  const poolQ = useQuery<PoolResponse>({ queryKey: ['pool'], queryFn: () => fetch(api('pool')).then(j), refetchInterval: 60000 })
+  const wlQ = useQuery<WhitelistResponse>({ queryKey: ['whitelist'], queryFn: () => fetch(api('whitelist')).then(j), staleTime: 5 * 60 * 1000 })
+  const memQ = useQuery<MemoryResponse>({ queryKey: ['memory'], queryFn: () => fetch(api('memory')).then(j), staleTime: 5 * 60 * 1000 })
+
+  // 索引未完成时自动继续同步（只读操作，无需钱包）
+  const needResync = positionsQ.data?.index?.needResync ?? false
+  const lastSyncedBlock = positionsQ.data?.index?.lastSyncedBlock
+  useEffect(() => {
+    if (!needResync) return
+    let stop = false
+    ;(async () => {
+      try {
+        await fetch(api('indexer/sync'), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ budgetMs: 8000 }),
+        })
+        if (!stop) positionsQ.refetch()
+      } catch {
+        /* 下一轮重试 */
+      }
+    })()
+    return () => { stop = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needResync, lastSyncedBlock])
+
+  async function handleConnect() {
+    setWalletErr('')
+    try {
+      const { address: a, chainId } = await connectWallet()
+      setAddress(a)
+      setWalletChainId(chainId)
+    } catch (e) {
+      setWalletErr(String((e as Error).message || e))
+    }
+  }
+
+  function handleWatch() {
+    const a = input.trim()
+    if (!ADDR_RE.test(a)) {
+      setWalletErr('请输入有效的 0x 地址（42 位）')
+      return
+    }
+    setWalletErr('')
+    setAddress(a)
+    setWalletChainId(null)
+  }
+
+  const sorted = useMemo(() => {
+    const list = (positionsQ.data?.positions ?? []).filter((p) => {
+      if (!hideEmpty) return true
+      return !(p.closed && (p.fee0 ?? 0) === 0 && (p.fee1 ?? 0) === 0)
+    })
+    const aprOf = (p: Position) => p.windows.h24?.apr ?? p.windows.h1?.apr ?? p.windows.d7?.apr ?? -1
+    const cmp: Record<SortKey, (a: Position, b: Position) => number> = {
+      value: (a, b) => (b.principalUsd ?? -1) - (a.principalUsd ?? -1),
+      fees: (a, b) => (b.feesUsd ?? -1) - (a.feesUsd ?? -1),
+      apr: (a, b) => aprOf(b) - aprOf(a),
+      tokenId: (a, b) => Number(b.tokenId) - Number(a.tokenId),
+    }
+    return [...list].sort(cmp[sortKey])
+  }, [positionsQ.data, sortKey, hideEmpty])
+
+  const poolForPanel = positionsQ.data ?? poolQ.data
+
   return (
-    <svg width="40" height="40" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d={SURF_LOGO_PATH} fill="var(--fg-base, #212121)" />
-    </svg>
+    <div className="min-h-screen bg-[#0a0d12] text-zinc-100">
+      <div className="mx-auto max-w-6xl space-y-4 px-4 py-6">
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-lg font-semibold">KNTQ/HYPE LP 管理器</h1>
+            <p className="text-[11px] text-zinc-500">Elysium · 只读看板（M1）· 数据：链上 RPC / Surf / DexScreener</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-[11px]">
+            <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">M1 只读 · 不请求任何签名</span>
+            {positionsQ.data && (
+              <span className="rounded-full border border-zinc-700 px-2 py-1 text-zinc-400">
+                RPC {positionsQ.data.rpc.active.replace('https://', '')} · {positionsQ.data.rpc.endpoints[0]?.latencyMs ?? '—'}ms
+              </span>
+            )}
+            {(positionsQ.data ?? poolQ.data) && (
+              <span className="rounded-full border border-zinc-700 px-2 py-1 text-zinc-400">
+                区块 {(positionsQ.data?.index.latestBlock ?? poolQ.data?.pool.at) ? (positionsQ.data?.index.latestBlock ?? '—').toLocaleString() : '—'}
+              </span>
+            )}
+          </div>
+        </header>
+
+        <section className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <button onClick={handleConnect} className="rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-1.5 text-sm hover:bg-zinc-700">
+              连接钱包{providerName ? `（${providerName}）` : ''}
+            </button>
+            <span className="text-[11px] text-zinc-500">或</span>
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleWatch() }}
+              placeholder="粘贴地址（观察模式，无需连接钱包）"
+              className="w-80 max-w-full rounded-lg border border-zinc-700 bg-zinc-950/60 px-3 py-1.5 font-mono text-xs outline-none placeholder:text-zinc-600 focus:border-zinc-500"
+            />
+            <button onClick={handleWatch} className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800">查看</button>
+            {address && (
+              <span className="flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-950/60 px-3 py-1.5 font-mono text-xs">
+                {shortAddr(address)}
+                <button className="text-zinc-500 hover:text-zinc-300" onClick={() => { setAddress(''); setWalletChainId(null) }}>×</button>
+              </span>
+            )}
+          </div>
+          {walletChainId != null && walletChainId !== ELYSIUM_CHAIN_ID && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-amber-300">
+              <span>钱包当前网络不是 Elysium（chainId {walletChainId}）。</span>
+              <button
+                className="underline"
+                onClick={() => switchToElysium().then(() => getWalletChainId().then(setWalletChainId)).catch((e) => setWalletErr(String((e as Error).message || e)))}
+              >
+                切换网络
+              </button>
+              <span className="text-zinc-500">（本页数据读取不依赖钱包网络，切换仅为方便后续操作）</span>
+            </div>
+          )}
+          {walletErr && <div className="mt-2 text-[11px] text-red-400">{walletErr}</div>}
+        </section>
+
+        {poolForPanel && <PoolPanel pool={poolForPanel} />}
+
+        {!address && (
+          <section className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-6 text-center text-sm text-zinc-400">
+            连接 OKX 钱包，或粘贴任意地址进入观察模式，查看只读持仓数据。
+          </section>
+        )}
+
+        {address && positionsQ.isLoading && (
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-4 text-sm text-zinc-400">加载中…（首次会建立头寸索引，可能需要数十秒）</div>
+        )}
+
+        {address && positionsQ.isError && (
+          <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
+            读取失败：{String((positionsQ.error as Error)?.message || '未知错误')}
+          </div>
+        )}
+
+        {address && positionsQ.data && (
+          <>
+            {!positionsQ.data.index.synced && (
+              <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 text-xs text-sky-300">
+                头寸索引同步中：{Math.round(positionsQ.data.index.progress * 100)}%（{positionsQ.data.index.lastSyncedBlock.toLocaleString()} / {positionsQ.data.index.latestBlock.toLocaleString()}）— 页面会自动继续，无需操作。
+              </div>
+            )}
+
+            <BalancesRow balances={positionsQ.data.balances} />
+
+            <section className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-sm font-medium text-zinc-200">头寸（{sorted.length}）</h2>
+                <div className="flex flex-wrap items-center gap-3 text-[11px] text-zinc-400">
+                  <label className="flex items-center gap-1.5">
+                    <input type="checkbox" checked={hideEmpty} onChange={(e) => setHideEmpty(e.target.checked)} />
+                    隐藏已撤空仓
+                  </label>
+                  <select
+                    value={sortKey}
+                    onChange={(e) => setSortKey(e.target.value as SortKey)}
+                    className="rounded border border-zinc-700 bg-zinc-950/60 px-2 py-1 text-zinc-300"
+                  >
+                    <option value="value">按本金排序</option>
+                    <option value="fees">按待领收益排序</option>
+                    <option value="apr">按年化排序</option>
+                    <option value="tokenId">按 tokenId 排序</option>
+                  </select>
+                  <button onClick={() => positionsQ.refetch()} className="rounded border border-zinc-700 px-2 py-1 hover:bg-zinc-800">刷新</button>
+                </div>
+              </div>
+
+              {sorted.length === 0 ? (
+                <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-6 text-center text-sm text-zinc-500">
+                  没有找到该地址在目标池的头寸{hideEmpty ? '（已隐藏空仓，可取消勾选查看）' : ''}。
+                </div>
+              ) : (
+                <div className="grid gap-3 lg:grid-cols-2">
+                  {sorted.map((p) => (
+                    <PositionCard key={p.tokenId} p={p} />
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <div className="text-[11px] text-zinc-600">
+              数据更新 {fmtTime(positionsQ.data.at)} · 索引最后同步 {timeAgo(positionsQ.data.index.lastSyncedAt)} · 价格来源 Surf（{timeAgo(positionsQ.data.prices.KNTQ?.at)}）
+            </div>
+          </>
+        )}
+
+        {wlQ.data && <WhitelistPanel data={wlQ.data} />}
+        {memQ.data && <MemoryPanel data={memQ.data} />}
+
+        <footer className="pb-8 text-[11px] leading-5 text-zinc-600">
+          安全说明：M1 只读模式——连接钱包仅用于读取地址；所有链上数据由后端只读 RPC 获取，不会请求任何签名（Approve / Permit2 / 组池 / 领费 / 撤池均在 M3 交易开关后开放）。
+          合约身份：PoolManager 与官方构建逐字节一致；PositionManager 接口面一致、实现等价性待 M2 验证；官方归属待确认。详见「核验与设置」。
+        </footer>
+      </div>
+    </div>
   )
 }
 
-// Frontend API calls should use `src/lib/api.ts`, not absolute `/api/...` URLs.
 export default function App() {
+  const [qc] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } } }))
   return (
-    <div data-surf-placeholder className="min-h-screen flex flex-col items-center justify-center gap-4 rounded-[14px]" style={{ background: 'var(--bg-chat-nav, #f4f4f4)', border: '1px solid var(--border-strong, rgba(42,42,42,0.08))' }}>
-      <SurfLogo />
-      <h1 className="font-black text-[36px] leading-[44px] text-[var(--fg-base,#212121)]">
-        GM, Builder<span style={{ color: 'var(--brand-100, #ff2882)' }}>.</span>
-      </h1>
-      <p className="text-xl leading-7 text-[var(--fg-subtle,#7a7a7a)]">
-        Start your crypto project here!
-      </p>
-    </div>
+    <QueryClientProvider client={qc}>
+      <Dashboard />
+    </QueryClientProvider>
   )
 }
