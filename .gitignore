@@ -1,0 +1,18 @@
+# deps
+node_modules/
+
+# build output
+dist/
+.vulcan/
+
+# session artifacts (uploads are platform-managed)
+uploads/
+
+# env
+.env
+.env.*
+!.env.example
+
+# misc
+*.log
+.DS_Store
