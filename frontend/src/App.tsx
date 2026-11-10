@@ -6,6 +6,7 @@ import type { MemoryResponse, PoolResponse, Position, PositionsResponse, Whiteli
 import BalancesRow from './components/BalancesRow'
 import PoolPanel from './components/PoolPanel'
 import PositionCard from './components/PositionCard'
+import SimulatorPanel from './components/SimulatorPanel'
 import WhitelistPanel from './components/WhitelistPanel'
 import MemoryPanel from './components/MemoryPanel'
 import { fmtTime, shortAddr, timeAgo } from './lib/format'
@@ -21,6 +22,7 @@ function Dashboard() {
   const [walletErr, setWalletErr] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('value')
   const [hideEmpty, setHideEmpty] = useState(true)
+  const [focus, setFocus] = useState<{ id: string | null; seq: number }>({ id: null, seq: 0 })
 
   const providerName = getProviderName()
 
@@ -212,7 +214,7 @@ function Dashboard() {
               ) : (
                 <div className="grid gap-3 lg:grid-cols-2">
                   {sorted.map((p) => (
-                    <PositionCard key={p.tokenId} p={p} />
+                    <PositionCard key={p.tokenId} p={p} onAnalyze={(id) => setFocus({ id, seq: Date.now() })} />
                   ))}
                 </div>
               )}
@@ -224,9 +226,16 @@ function Dashboard() {
           </>
         )}
 
+        <SimulatorPanel
+          address={address}
+          positions={positionsQ.data?.positions ?? []}
+          pool={(positionsQ.data ?? poolQ.data)?.pool ?? null}
+          focusTokenId={focus.id}
+          focusSeq={focus.seq}
+        />
+
         {wlQ.data && <WhitelistPanel data={wlQ.data} />}
         {memQ.data && <MemoryPanel data={memQ.data} />}
-
         <footer className="pb-8 text-[11px] leading-5 text-zinc-600">
           安全说明：M1 只读模式——连接钱包仅用于读取地址；所有链上数据由后端只读 RPC 获取，不会请求任何签名（Approve / Permit2 / 组池 / 领费 / 撤池均在 M3 交易开关后开放）。
           合约身份：PoolManager 与官方构建逐字节一致；PositionManager 接口面一致、实现等价性待 M2 验证；官方归属待确认。详见「核验与设置」。

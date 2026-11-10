@@ -1,0 +1,58 @@
+{
+  "fixture": "swap-vectors.json",
+  "bytes": 4848347,
+  "sha256": "f639703c46c4c28982cf2636ee49a8f7792dd0c87d216ba3c8ffe93668cf4cb9",
+  "gzipBytes": 464284,
+  "gzipSha256": "454389de30c3002cdba7c485a36587f29d7d0b8f7e9e322702bfb40140a8c8e9",
+  "generatedAt": "2026-11-10T07:05:20.341Z",
+  "generatorCommit": "3acf1d18fed5344cd1729d4653805191e25a04b0",
+  "generatorCommitDirty": false,
+  "codeHashes": {
+    "scripts/swap-vectors.js": "9055ba3ef4629c7f658ec569d2cfa6d6a40f24dccef5ca488e0fbef9a0a3220b",
+    "reference/v4/pool-swap.js": "243a03a5b6306015f3cd649ee0a013f5a8dbda8bfee29cebb3daa7c24462644c",
+    "reference/v4/router.js": "8bf867c8aa7305fa7e78445ff3e0bf2717f342e457e489f84a17141dbede157c",
+    "reference/v4/sqrtpricemath.js": "3d1ea37d74a2322a405a3e5536cd40dd07b3ef2bc2bb5b2d3a34450c0c8940c8",
+    "reference/v4/swapmath.js": "6fc0b784f70e59b84cfea27de741555e90a4766be32f824424884a96de35dc7d",
+    "reference/v4/tickmath.js": "18d6c8a18efa0e9792091a09831812f1d6eec32fa0461fa0e3da1f8950c63b1e"
+  },
+  "validationCounts": {
+    "calldataDecoded": 18,
+    "exclusiveHypothesis": 2982,
+    "feePaidFromChain": 48,
+    "feePaidFromReference": 2952,
+    "crossTick": 123,
+    "multiStep": 123
+  },
+  "blockRange": {
+    "from": 256083,
+    "to": 3828052,
+    "span": 3571969
+  },
+  "poolId": "0xc96bfd21d36f8e7252f0d80fcb5f3bcacdf47c8b927b20711104713ebeb383ac",
+  "poolManager": "0xe2e105d3f7209a9da11f83ccf3e7398a753823f1",
+  "vectors": 3000,
+  "byModeSource": {
+    "transactionCalldata": 18,
+    "chainObservableHypothesisTest": 2982
+  },
+  "validation": {
+    "modeSource": "transaction-calldata (方案A) | exclusive chain-observable hypothesis test (方案B)",
+    "routerDecoder": "backend/reference/v4/router.js",
+    "hypothesisReference": "backend/reference/v4/pool-swap.js (independent v4-core port)",
+    "expectedSource": "on-chain-swap-event",
+    "feePaidSource": "onchain-feeGrowthGlobal (exact when no tick crossing) | independent-reference",
+    "independentReference": true,
+    "productionCodeUsedInGeneration": false,
+    "feePaidChecked": true,
+    "exclusiveHypothesisOnly": true,
+    "ambiguousSamplesExcluded": true,
+    "limitInsensitiveOnly": false,
+    "limitSemanticsChecked": true
+  },
+  "provenanceNotes": [
+    "generatorCommit 是生成 fixture 时所用代码的快照（git rev-parse HEAD）；提交 fixture 后 HEAD 会前进，因此不要求它等于最新提交。",
+    "codeHashes 是生成时「生成器 + 独立参考实现」逐文件 SHA-256；测试会用当前工作树重算并比对，一旦代码改动而 fixture 未重新生成即失败。",
+    "fixture 不是运行测试时动态生成的：测试离线重放已提交的 fixture，不访问 RPC。"
+  ],
+  "regenerate": "cd backend && node scripts/swap-vectors.js   # 改动生成器或 reference/ 后必须重新生成；CI 默认离线使用本 fixture"
+}
