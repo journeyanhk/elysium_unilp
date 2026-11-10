@@ -101,3 +101,6 @@
 6. 隔离检查进测试：`reference/v4/*` 不得 `require` 生产 `lib/v4math.js`（本次为纯注释提及，已确认无反向依赖）。
 
 **流程教训**：任何会改变 fixture 生成结果的文件（生成器、参考实现、常量）修改后，**必须重新生成并提交 fixture（JSON + gzip + meta）**；重新生成耗时约 4 分钟，属于必须付出的成本。
+
+**本次踩坑**：`generatorCommitDirty` 的 `git status --porcelain` 用了相对 `backend/` 的 pathspec，但 `cwd` 是仓库根 → git 不匹配任何文件 → 恒返回 `false`（等于没检查）。正确写法：`cwd = 仓库根` + `backend/scripts/swap-vectors.js backend/reference`。**凡是用 git 状态做门禁，必须先用「故意弄脏工作树」的方式验证它真的会报 true。**
+

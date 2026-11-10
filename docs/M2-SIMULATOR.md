@@ -57,29 +57,29 @@ node scripts/pm-behavior-compare.js # 重新生成 PM 只读对照报告
 
 | 来源 | 条件 | 数量（本次） |
 |---|---|---|
-| `onchain-feeGrowthGlobal`（链上直接观测） | 跨区块、区间内流动性不变、且该笔是其区块最后一笔 Swap（`feeGrowthGlobal` 只在区块末读取，同块后续 Swap 会混入 Δfg）、协议费为 0 | 43（**与参考实现逐位一致 43/43**） |
-| `independent-reference`（独立参考实现推导，**非链上直接观测值**） | 其余样本（跨 tick 使 `Δfg×L/2^128` 反推不精确、同区块多笔 Swap、RPC 读取失败等） | 2957 |
+| `onchain-feeGrowthGlobal`（链上直接观测） | 跨区块、区间内流动性不变、且该笔是其区块最后一笔 Swap（`feeGrowthGlobal` 只在区块末读取，同块后续 Swap 会混入 Δfg）、协议费为 0 | 48（**与参考实现逐位一致 48/48**） |
+| `independent-reference`（独立参考实现推导，**非链上直接观测值**） | 其余样本（跨 tick 使 `Δfg×L/2^128` 反推不精确、同区块多笔 Swap、RPC 读取失败等） | 2952 |
 
 > 口径：只有 `onchain-feeGrowthGlobal` 是链上直接观测；`independent-reference` 是独立实现推导值，已在 fixture 的 `expected.feePaidSource` 逐条标注，测试对两者都做逐位断言（前者额外与链上反推值比对）。
 
-### 2.3 结果（2026-11-10 第三次生成：用当前代码快照重新计算）
+### 2.3 结果（2026-11-10 第四次生成：生成时工作树干净，生成提交 `3acf1d1`）
 
 - **3000 / 3000 逐位一致，0 不一致**（amountIn、amountOut、feePaid、sqrtPriceAfter、tickAfter、liquidityAfter 全项逐位相等）；
-- 模式来源：calldata 解码 **19** / 排他性假设检验 **2981**；**歧义样本 0**；
-- 覆盖：zeroForOne 1666 / oneForZero 1334 / **跨 tick 123** / 多步 123 / 极小金额 6；exact-in 2997 / exact-out 3；
+- 模式来源：calldata 解码 **18** / 排他性假设检验 **2982**；**歧义样本 0**；
+- 覆盖：zeroForOne 1668 / oneForZero 1332 / **跨 tick 123** / 多步 123 / 极小金额 5；exact-in 2997 / exact-out 3；
 - 排除统计（透明列出）：假设检验均不匹配、限价敏感、区间内流动性变化、同区块多笔 Swap、calldata 未知路由器选择器等，逐类计数见 fixture 的 `stats.excluded`；
 - 生产实现与独立参考实现另做**全量交叉验证**（`tests/v4math.reference.test.js`）：3000 条向量 + 120 组随机构造场景逐位一致。
 
-> **口径声明**：以上验证的是「本地 Swap 数学 vs 链上 Swap 事件」，**不等于**「与官方实现行为完全等价」——写路径、极端参数、hook/协议费非零场景未覆盖。fixture 中 43 条 feePaid 有链上反推值，其余为独立参考实现推导（已在 `expected.feePaidSource` 标注）。
+> **口径声明**：以上验证的是「本地 Swap 数学 vs 链上 Swap 事件」，**不等于**「与官方实现行为完全等价」——写路径、极端参数、hook/协议费非零场景未覆盖。fixture 中 48 条 feePaid 有链上反推值，其余为独立参考实现推导（已在 `expected.feePaidSource` 标注）。
 
 ### 2.4 fixture 溯源（provenance）
 
 | 字段 | 含义 |
 |---|---|
-| `stats.generatorCommit` / `meta.generatorCommit` | **生成 fixture 时所用代码的快照**（`git rev-parse HEAD`）。提交 fixture 后 HEAD 会前进，因此**不要求**它等于最新提交；关键是二者一致、且该提交包含当前生成器与参考实现。 |
+| `stats.generatorCommit` / `meta.generatorCommit` | **生成 fixture 时所用代码的快照**（`git rev-parse HEAD`）。提交 fixture 后 HEAD 会前进，因此**不要求**它等于最新提交；关键是二者一致、生成时工作树干净、且该提交包含当前生成器与参考实现。本次为 `3acf1d1`。 |
 | `meta.generatorCommitDirty` | 生成时工作树是否存在未提交改动（生成器 / `reference/`）。必须为 `false`。 |
 | `meta.codeHashes` | 生成时「生成器 + 独立参考实现」**逐文件 SHA-256**（共 6 个文件）。测试用当前工作树重算并逐文件比对：**改了生成器或参考实现而没重新生成 fixture，测试直接失败**。 |
-| `meta.sha256` / `meta.gzipSha256` | fixture 与压缩包的 SHA-256；测试同时校验 gzip 解压内容与 JSON 完全一致。 |
+| `meta.sha256` / `meta.gzipSha256` | fixture 与压缩包的 SHA-256；测试同时校验 gzip 解压内容与 JSON 完全一致。本次 `f639703c…`。 |
 | `meta.validationCounts` | 独立验证来源统计（calldata / 排他性检验 / feePaid 链上 / feePaid 参考实现 / 跨 tick / 多步），与 `stats.validationCounts` 一致。 |
 
 **两条铁律**（已写入测试与元数据说明）：
@@ -141,7 +141,7 @@ node scripts/pm-behavior-compare.js # 重新生成 PM 只读对照报告
 ## 5. 数据源与端点
 - 池状态/头寸：StateView + PositionManager（链上）；
 - 台账：PoolManager `ModifyLiquidity` 事件索引；
-- 参考向量：池 Swap 事件（链上，3000 条；模式来源：calldata 19 / 排他性假设检验 2981）；
+- 参考向量：池 Swap 事件（链上，3000 条；模式来源：calldata 18 / 排他性假设检验 2982）；
 - 独立参考实现：`backend/reference/v4/`（官方 v4-core 源码移植，仅用于向量生成与交叉验证，**不参与生产路径，也不反向依赖 `lib/v4math.js`**，由测试强制）；
 - PM 对照：Sourcify 验证源 ABI + 三链 eth_getCode/eth_call；
 - 美元价格：Surf 市场数据（主）+ DexScreener（备），均带来源与时间戳。

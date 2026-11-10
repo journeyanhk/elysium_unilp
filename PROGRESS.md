@@ -69,7 +69,7 @@
 
 | 要求 | 处理 | 证据 |
 |---|---|---|
-| 用当前代码重新生成 fixture | 已在提交 `8e8e422` 的代码快照上重新生成（生成时工作树干净） | `stats.generatorCommit = meta.generatorCommit = 8e8e422…`，`generatorCommitDirty = false` |
+| 用当前代码重新生成 fixture | 在干净工作树上重新生成；生成提交即包含当前生成器与参考实现 | `stats.generatorCommit = meta.generatorCommit = 3acf1d1…`，`generatorCommitDirty = false`（修掉了 dirty 检查路径写错导致恒为 false 的 bug） |
 | JSON / gzip / meta 同步更新 | 三者同批写入，meta 记录 sha256、gzip sha256、字节数 | `swap-vectors.meta.json` |
 | 生成提交可追溯 | 元数据新增 **逐文件 codeHashes**（生成器 + reference/v4 共 6 个文件）+ `validationCounts` | `meta.codeHashes` |
 | 测试加强 | 新增：`meta.generatorCommit === stats.generatorCommit`、生成时工作树干净、`codeHashes` 与当前工作树逐文件一致、reference 不反向依赖生产实现、gzip 内容与 JSON 一致 | `bun run test` → **52/52** |
@@ -77,7 +77,7 @@
 | 命名与统计 | `mismatchCount` → `excludedCount`（避免误读为数学不一致）；新增 `validationCounts`（calldata / 排他性检验 / feePaid 链上 / feePaid 参考实现 / 跨 tick / 多步） | fixture `stats` |
 | fixture 体积 | **保留完整 fixture**，不缩减为抽样版本（review 决定） | JSON ≈ 4.8 MB / gzip ≈ 454 KB |
 
-**本次重新生成结果**：3000/3000 逐位一致；calldata 解码 19 / 排他性假设检验 2981（歧义 0）；跨 tick 123 / 多步 123；feePaid 链上反推 43 条（43/43 一致）、参考实现推导 2957 条。
+**本次重新生成结果**：3000/3000 逐位一致；calldata 解码 18 / 排他性假设检验 2982（歧义 0）；跨 tick 123 / 多步 123；feePaid 链上反推 48 条（48/48 一致）、参考实现推导 2952 条；fixture sha256 `f639703c…`。
 
 ## 下一步（M3 预览）
 
