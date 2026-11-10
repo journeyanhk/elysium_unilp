@@ -108,6 +108,17 @@
 
 **边界**：未签名、未广播、未 Approve、未 Permit2、未 mint/burn/collect/modifyLiquidities；`TX_GATE.enabled=false`、全部 `writeEnabled=false`、PM 保持 `pending-official`。
 
+## M3.1 修订（回应 review P0-1 / P0-2 / P0-3，2026-11-10）
+
+| 项 | 处理 | 证据 |
+|---|---|---|
+| P0-1 chainId | 强制 `CHAIN.id`；不匹配拒绝；无硬编码（静态断言） | `tests/tx-build.test.js` |
+| P0-2 预演用户 | `checkSimulationUser()`：不一致 → **403**；审计记录 `intentUser` / `simulationFrom` | `tests/tx-simulate.test.js` + 实测 403 |
+| P0-3 完整预检 | mint：两币余额 + ERC-20→Permit2 + Permit2→PM 授权；remove/collect：`ownerOf` / `getPositionLiquidity` / `getPoolAndPositionInfo`；7 类明确失败分类；记录预检区块号与 hash | `tests/tx-simulate.test.js`（12 条，假 RPC 离线） |
+| 审计补充 | `intentUser`、`simulationFrom`、`precheckBlockNumber`、`precheckBlockHash` 写入 `tx_simulations.precheck` 与 `tx_audit.payload` | 实测落库 |
+
+实测：他人地址预演 → `HTTP 403`；正确用户 → 预检报 `NATIVE_BALANCE_LOW` + `TOKEN_BALANCE_LOW`（并附两级授权读数）。测试 **121/121**。
+
 ## 下一步（M3 预览）
 
 - 交易开关（官方确认 或 用户知情接受 + 首笔小额）

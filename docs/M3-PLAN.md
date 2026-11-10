@@ -165,6 +165,20 @@ tx_audit     审计（intent_id、用户确认时间、签名者地址、交易�
 
 **仍未打开**：真实交易、签名、Approve、Permit2、mint、burn、collect、`modifyLiquidities` 全部保持关闭。
 
+## 11. M3.1 修订记录（回应 review 3 个 P0）
+
+| P0 | 问题 | 处理 | 测试 |
+|---|---|---|---|
+| **P0-1** | `buildIntent()` 接受任意 `chainId` | 强制绑定白名单链：未传 → 使用 `CHAIN.id`；传入值 ≠ `CHAIN.id` → 直接拒绝；**源码中不再出现硬编码链 ID**（有静态断言） | `tests/tx-build.test.js`：未传 / 正确 / 错误 chainId 三例 + 无硬编码断言 |
+| **P0-2** | `/simulate` 未绑定 intent 用户，可用他人地址预演 | 新增 `checkSimulationUser()`：请求用户与 intent 用户不一致 → **HTTP 403**；预演一律使用 intent 用户；审计同时记录 `intentUser` 与 `simulationFrom`（必须相同） | `tests/tx-simulate.test.js` + 路由静态断言（不得出现 `user \|\| it.user_addr`） |
+| **P0-3** | 预检只读 ERC-20 allowance，未覆盖两级授权与头寸归属 | 重写 `precheck()`：mint 读取两种货币的**余额 + ERC-20→Permit2 授权 + Permit2→PositionManager 授权**（原生币走余额）；remove/collect 读取 `ownerOf` / `getPositionLiquidity` / `getPoolAndPositionInfo`；失败按明确分类给出（`NATIVE_BALANCE_LOW` / `TOKEN_BALANCE_LOW` / `ERC20_ALLOWANCE_LOW` / `PERMIT2_ALLOWANCE_LOW` / `TOKEN_NOT_OWNER` / `POSITION_NOT_FOUND` / `LIQUIDITY_INSUFFICIENT`），**不再依赖回滚字符串推断**；预检区块号与 block hash 一并记录 | `tests/tx-simulate.test.js`（12 条，注入假 RPC 离线验证每条分类） |
+
+**审计字段补充**（review 建议）：`intentUser`、`simulationFrom`、`precheckBlockNumber`、`precheckBlockHash`，全部写入 `tx_simulations.precheck` 与 `tx_audit.payload`。
+
+**实测**：他人地址预演 → `HTTP 403`；正确用户预演 → 预检明确给出 `NATIVE_BALANCE_LOW`（余额 2549270980161990 wei < 需要 1e16）与 `TOKEN_BALANCE_LOW`（KNTQ 余额 0），并附 ERC-20 / Permit2 授权读数。
+
+**测试总数**：104 → **121**。
+
 ## 9. 本阶段复核点（请 review）
 
 1. 门禁模型（双重门禁 + 解锁记录 + 熔断）是否足够；

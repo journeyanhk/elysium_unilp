@@ -8,7 +8,7 @@
  *   - V4 编码复用 M2 模拟器的编码函数，保证「模拟」与「未来真实操作」使用同一布局。
  */
 const { keccak256, encodeFunctionData, parseAbi, encodeAbiParameters } = require('viem');
-const { CONTRACTS, POOLS } = require('../config/whitelist');
+const { CHAIN, CONTRACTS, POOLS, TOKENS } = require('../config/whitelist');
 const { TX_GATE, GATE_VERSION } = require('../config/tx-gate');
 const { validateCall, whitelistedPoolKey } = require('./tx-parse');
 const simulator = require('./simulator');
@@ -52,7 +52,11 @@ function buildIntent(p = {}) {
   const { type, user } = p;
   if (!INTENT_TYPES.includes(type)) throw new Error(`不支持的 intent 类型：${type}`);
   if (!/^0x[0-9a-fA-F]{40}$/.test(String(user || ''))) throw new Error('缺少合法的用户地址');
-  const chainId = p.chainId || (CONTRACTS.permit2 && 99901);
+  // P0-1（M3.1 review）：chainId 必须绑定白名单链，禁止请求体携带任意链 ID
+  if (p.chainId != null && Number(p.chainId) !== CHAIN.id) {
+    throw new Error(`chainId 不匹配：要求 ${CHAIN.id}，收到 ${p.chainId}`);
+  }
+  const chainId = CHAIN.id;
   const now = Math.floor(Date.now() / 1000);
   const deadlineSec = p.deadlineSec != null ? Number(p.deadlineSec) : Math.floor(TX_GATE.limits.maxDeadlineSec / 2);
   const deadline = now + deadlineSec;
@@ -100,7 +104,7 @@ function buildIntent(p = {}) {
   } else if (type === 'approve') {
     const a = p.approve || {};
     tokenKey = a.tokenKey;
-    const token = (require('../config/whitelist').TOKENS[tokenKey] || {}).address;
+    const token = (TOKENS[tokenKey] || {}).address;
     if (!token) throw new Error(`未知代币键：${tokenKey}`);
     target = token;
     calldata = buildApproveCalldata({ spender: a.spender, amount: a.amountRaw });
@@ -108,7 +112,7 @@ function buildIntent(p = {}) {
   } else {
     const a = p.permit2 || {};
     tokenKey = a.tokenKey;
-    const token = (require('../config/whitelist').TOKENS[tokenKey] || {}).address;
+    const token = (TOKENS[tokenKey] || {}).address;
     if (!token) throw new Error(`未知代币键：${tokenKey}`);
     target = CONTRACTS.permit2.address;
     const expiration = a.expirationSec != null ? Number(a.expirationSec) : now + 7 * 86400;

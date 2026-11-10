@@ -114,3 +114,12 @@
 - **viem 陷阱**：`decodeAbiParameters` 的 tuple 必须写成 `{ type: 'tuple', components: [...] }`，直接传 components 数组会报 `getArrayComponents` 的诡异错误；解码失败要包成自己的拒绝错误，避免把底层异常透出。
 - **BigInt 序列化**：calldata 快照含 BigInt，`res.json` 会抛 `JSON.stringify cannot serialize BigInt` → 统一走 `safeJson()`（BigInt → string）。
 - 编码一致性：M3 构造复用 M2 模拟器的编码函数，并用测试断言**逐字节一致**，避免「模拟和真实操作不是同一套 calldata」。
+
+## 2026-11-10（M3.1 修订）3 个 P0 的教训
+
+- **不要接受请求体里的链 ID**：`chainId` 必须来自白名单配置（`CHAIN.id`），不匹配直接拒绝；源码里不要出现硬编码链 ID，并用静态断言锁住。
+- **预演身份必须与意图身份绑定**：只读接口也不能允许「用 A 的 intent + B 的地址」做 `eth_call`——余额、授权与回滚原因都会归属错人，后续复用会放大成交易前置检查错误。做法：`checkSimulationUser()` 不一致直接 403，审计同时记录 `intentUser` 与 `simulationFrom`。
+- **预检要显式读链上状态，不要靠回滚字符串猜**：mint 必须读「余额 + ERC-20→Permit2 + Permit2→PM」三组数据；remove/collect 必须读 `ownerOf` / `getPositionLiquidity` / `getPoolAndPositionInfo`；失败要分类（余额不足 / ERC-20 授权不足 / Permit2 授权不足 / 非持有人 / 头寸不存在 / 流动性不足），并记录预检区块号与 block hash。
+- **可注入 RPC 让预演逻辑可离线测试**：`simulate({...}, { rpc })` / `precheck({...}, { rpc })` 注入假 RPC，按 selector 返回预设值 → 每条失败分类都能离线断言；注意 `blockInfo()` 也要用注入的 rpc（本次踩坑：它直接走真实链，导致测试拿到真实区块号）。
+- 十六进制与十进制不要混用：`eth_getBalance` 返回 hex，展示/审计前统一 `BigInt` 转换，避免出现 `0x90e8c673571c6` 这类难以核对的值。
+- 测试用地址必须是合法 40 位十六进制；写错一位会让 `slice(-40)` 截出错误地址，表现为莫名其妙的「持有人不匹配」。

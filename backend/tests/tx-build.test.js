@@ -13,7 +13,7 @@ const { keccak256 } = require('viem');
 
 const { buildIntent } = require('../lib/tx-build');
 const simulator = require('../lib/simulator');
-const { CONTRACTS } = require('../config/whitelist');
+const { CHAIN, CONTRACTS } = require('../config/whitelist');
 
 const USER = '0x2cC17141A8753706Cf5557C9eE9EF91f8E995f53';
 
@@ -90,6 +90,24 @@ test('非法输入必须拒绝（未知类型 / 非法地址 / 未对齐 tick / 
   assert.throws(() => buildIntent({ type: 'mint', user: USER, mint: { tickLower: 52050, tickUpper: 52800, liquidity: 1n, amount0Max: 1n, amount1Max: 1n } }), /未按 tickSpacing/);
   assert.throws(() => buildIntent({ type: 'mint', user: USER, mint: { tickLower: 52000, tickUpper: 52800, liquidity: 0n, amount0Max: 1n, amount1Max: 1n } }), /liquidity 必须大于 0/);
   assert.throws(() => buildIntent({ type: 'approve', user: USER, approve: { tokenKey: 'KNTQ', spender: CONTRACTS.permit2.address, amountRaw: (1n << 256n) - 1n } }), /禁止无限授权/);
+});
+
+test('chainId 必须绑定白名单链（P0-1）', () => {
+  const r1 = buildIntent({ type: 'mint', user: USER, mint: { tickLower: 52000, tickUpper: 52800, liquidity: 10n ** 18n, amount0Max: 1n, amount1Max: 1n } });
+  assert.equal(r1.chainId, CHAIN.id, '未传 chainId 时应使用白名单链 ID');
+  const r2 = buildIntent({ type: 'mint', user: USER, chainId: CHAIN.id, mint: { tickLower: 52000, tickUpper: 52800, liquidity: 10n ** 18n, amount0Max: 1n, amount1Max: 1n } });
+  assert.equal(r2.chainId, CHAIN.id, '传入正确 chainId 应通过');
+  assert.throws(
+    () => buildIntent({ type: 'mint', user: USER, chainId: 1, mint: { tickLower: 52000, tickUpper: 52800, liquidity: 10n ** 18n, amount0Max: 1n, amount1Max: 1n } }),
+    /chainId 不匹配/
+  );
+  assert.throws(
+    () => buildIntent({ type: 'mint', user: USER, chainId: 999, mint: { tickLower: 52000, tickUpper: 52800, liquidity: 10n ** 18n, amount0Max: 1n, amount1Max: 1n } }),
+    /chainId 不匹配/
+  );
+  // 源码中不得硬编码链 ID
+  const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'tx-build.js'), 'utf8');
+  assert.ok(!/99901/.test(src), 'tx-build.js 不得硬编码 chainId');
 });
 
 test('tx-build / tx-simulate 模块不含钱包或广播依赖（静态检查）', () => {

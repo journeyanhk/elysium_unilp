@@ -13,7 +13,7 @@ const express = require('express');
 const router = express.Router();
 const { dbQuery } = require('@surf-ai/sdk/db');
 const { buildIntent } = require('../lib/tx-build');
-const { simulate } = require('../lib/tx-simulate');
+const { simulate, checkSimulationUser } = require('../lib/tx-simulate');
 const { assertTxAllowed, txGateStatus, evaluateTxRequest } = require('../config/tx-gate');
 const { recordAttempt, loadGateState } = require('../lib/tx-gate-state');
 const simulator = require('../lib/simulator');
@@ -105,12 +105,32 @@ router.post('/simulate', async (req, res) => {
     const { rows } = await dbQuery('SELECT * FROM tx_intents WHERE id = $1', [intentId]);
     if (!rows.length) return res.status(404).json({ error: `intent ${intentId} 不存在` });
     const it = rows[0];
+
+    // P0-2：预演用户必须与 intent 用户一致（禁止用他人地址模拟）
+    let simulationUser;
+    try {
+      simulationUser = checkSimulationUser(it.user_addr, user);
+    } catch (e) {
+      if (e.code === 'SIM_USER_MISMATCH') return res.status(403).json({ error: e.message });
+      throw e;
+    }
+
+    const intentForPrecheck = {
+      type: it.intent_type,
+      params: it.params ? JSON.parse(it.params) : {},
+      poolKey: it.pool_key ? JSON.parse(it.pool_key) : null,
+    };
     const sim = await simulate({
-      user: user || it.user_addr,
+      user: simulationUser,
       targetContract: it.target_contract,
       calldata: it.calldata,
       localEstimate: localEstimate || null,
+      intent: intentForPrecheck,
     });
+    sim.intentUser = it.user_addr;
+    sim.simulationFrom = simulationUser;
+    sim.precheckBlockNumber = sim.precheck ? sim.precheck.block : null;
+    sim.precheckBlockHash = sim.precheck ? sim.precheck.blockHash : null;
     try {
       await dbQuery(
         `INSERT INTO tx_simulations
@@ -125,10 +145,18 @@ router.post('/simulate', async (req, res) => {
         ]
       );
       await dbQuery(
-        `INSERT INTO tx_audit (chain_id, intent_id, event, target_contract, selector, calldata_hash, payload)
-         VALUES ($1,$2,'simulate',$3,$4,$5,$6)`,
-        [it.chain_id, intentId, it.target_contract, it.selector, it.calldata_hash,
-          JSON.stringify({ simBlock: sim.simBlockNumber, simBlockHash: sim.simBlockHash, ethCallOk: sim.ethCallOk, gasEstimate: sim.gasEstimate, gasUsd: sim.gasUsd })]
+        `INSERT INTO tx_audit (chain_id, intent_id, event, user_addr, target_contract, selector, calldata_hash, payload)
+         VALUES ($1,$2,'simulate',$3,$4,$5,$6,$7)`,
+        [it.chain_id, intentId, simulationUser, it.target_contract, it.selector, it.calldata_hash,
+          JSON.stringify({
+            intentUser: it.user_addr,
+            simulationFrom: simulationUser,
+            simBlock: sim.simBlockNumber, simBlockHash: sim.simBlockHash,
+            precheckBlock: sim.precheckBlockNumber, precheckBlockHash: sim.precheckBlockHash,
+            ethCallOk: sim.ethCallOk, revertReason: sim.revertReason,
+            gasEstimate: sim.gasEstimate, gasUsd: sim.gasUsd,
+            precheckIssues: sim.precheck ? sim.precheck.issues : null,
+          })]
       );
     } catch (e) {
       sim.auditError = String(e.message).slice(0, 200);
