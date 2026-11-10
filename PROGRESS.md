@@ -6,13 +6,13 @@
 |---|---|---|
 | M0 | 核验与白名单（Elysium V4 部署身份） | ✅ 完成并合并（main `1c39534`） |
 | M1 | 只读看板（钱包连接/余额/头寸索引/池状态/待领费用/RPC 状态） | ✅ 完成并合并（main `d135736`，review 通过） |
-| **M2** | **模拟器（建仓/撤池/LP vs HODL/Break-even/退出滑点 + PM 只读对照）** | **🔨 依 review 修订完成（4 项阻塞项已修复），待二次 review** |
+| **M2** | **模拟器（建仓/撤池/LP vs HODL/Break-even/退出滑点 + PM 只读对照）** | **🔨 依 review 修订完成（4 项阻塞项 + 参考向量独立性二次修订），待二次 review** |
 | M3 | 手动 LP 操作（组池/领费/撤池，交易开关后） | ⏳ 未开始 |
 | M4 | Elysium 监测（桥接/新池/官方动态） | ⏳ 未开始 |
 | M5 | 策略辅助（评分/出区间提醒） | ⏳ 未开始 |
 | M6 | VPS 部署（Docker 完整方案） | ⏳ 未开始 |
 
-## M2 修订记录（回应 review 4 个阻塞项）
+## M2 修订记录（回应 review 4 个阻塞项 + P0-3 二次修订）
 
 | 项 | 内容 | 状态 |
 |---|---|---|
@@ -50,6 +50,20 @@
 - [x] 风险分析实测（#5391：台账 23 笔，HODL $3254.27 vs LP $3258.69，差额 +$4.42，IL 部分 −$0.73，所需交易量 $109）
 - [x] PM 对照实测（37/37 选择器一致；错误语义一致；permit2 三链一致）
 - [x] 前端类型检查 + 生产构建通过；全路由冒烟通过
+
+## M2 二次修订记录（回应 review：参考向量「自证循环」）
+
+| 要求 | 处理 | 证据 |
+|---|---|---|
+| mode 必须来自真实 calldata，无法解码的不得猜测 | 方案 A：`reference/v4/router.js` 解码 Universal Router `execute`+`V4_SWAP`（多布局变体、哨兵限价）；方案 B：**排他性假设检验**（两种模式恰有一种能复现链上全部可观测值，歧义样本排除） | 本次：calldata 17 / 排他性检验 2983，歧义（两种都符合）**0** |
+| 引入独立官方参考实现 | 新增 `backend/reference/v4/`（官方 v4-core 源码移植：TickMath 位分解、SqrtPriceMath、SwapMath、Pool.swap 循环），**与生产 `lib/v4math.js` 完全分离**；生成时断言未加载生产实现 | `tests/v4math.reference.test.js`：3000 条向量 + 120 组随机场景逐位一致 |
+| fixture 增补字段 | `expected.amountIn / feePaid`、`expected.feePaidSource`、`validation.independentReference / feePaidChecked / productionCodeUsedInGeneration / exclusiveHypothesisOnly / limitSemanticsChecked`、`source.modeSource / router / action / limitConfirmedBy` | `backend/tests/fixtures/swap-vectors.json` + `.meta.json`（SHA-256、gzip SHA-256、区块范围、Pool ID、生成器 commit） |
+| 测试：feePaid 逐位断言、exact-out amountIn、强制断言 validation 标记、不依赖 mismatchCount | `tests/swap-vectors.test.js` 重写：六项数值逐位断言、exact-out 子集、跨 tick 子集、独立性元数据断言（缺失即失败）；另加生产 vs 参考实现交叉测试 | `bun run test` → **49/49 通过** |
+| 统计口径：按 mode 直接计数 | 生成器直接按 mode 计数，不再做减法推导 | 向量总数 3000：exact-in 2997 / exact-out 3 |
+| 保留全量 fixture + SHA-256/区块范围/Pool ID/commit；CI 默认离线 | fixture + gzip + meta 全部入库；测试离线重放，不访问网络 | `swap-vectors.meta.json` |
+| 文档措辞不得声称完整行为等价 | `docs/M2-SIMULATOR.md` 第 2 节重写 + 口径声明；仅声明「本地 Swap 数学与链上事件逐位一致」 | 见文档 2.3 口径声明 |
+
+**本次结果**：3000/3000 逐位一致；覆盖 zeroForOne 1668 / oneForZero 1332 / 跨 tick 124 / 多步 124；feePaid 链上反推 59 条（59/59 一致）、其余由独立参考实现推导（fixture 内标注来源）。排除统计（透明）：假设检验均不匹配 429、限价敏感 260、区间内流动性变化 2962、同区块多笔 5917、calldata 未知路由器 1509、multi-hop 路径等。
 
 ## 下一步（M3 预览）
 

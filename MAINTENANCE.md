@@ -71,3 +71,19 @@
   - tracked_positions 并发 upsert 产生重复行 → 唯一索引 `tracked_positions_chain_token_uniq` + `ON CONFLICT DO UPDATE` 修复
 - 索引首轮同步：1937 条 Transfer（含 432 销毁），1398 个 tokenId，约 6.4 秒
 - cron 注册成功：`sample-pool`（*/5 * * * *）
+
+## 2026-11-10（二次）参考向量独立性修订 — 方法论与坑
+
+**背景**：review 指出原 8455 条 fixture 是「自证循环」——生成器用生产实现先猜模式（exact-in → exact-out → 加限价），再由同一实现重放验证。
+
+**可复用的方法论**：
+1. **独立参考实现**：`backend/reference/v4/` 是按官方源码逐句移植的第二实现（TickMath 用位分解算法、SqrtPriceMath 含 uint256 溢出分支、SwapMath、Pool.swap 循环、Universal Router 解码器）。用途：模式判定、feePaid 推导、与生产实现交叉验证。**生成/验证路径不得加载生产实现**（脚本内有运行时断言）。
+2. **模式判定不允许猜测**：
+   - 方案 A：calldata 解码（`execute(bytes,bytes[],uint256)` → `V4_SWAP` 命令 `0x10` → 动作 `SWAP_EXACT_IN_SINGLE/EXACT_OUT_SINGLE`，注意**部分部署在外层多包一个 0x20 偏移字**，需试 `skip1word` 变体；单跳 path 布局含中置 `uint256[] minHopPriceX36`）。
+   - 方案 B：**排他性假设检验**——exact-in 与 exact-out 两种假设必须**恰好一种**能复现链上全部可观测值（amountIn/amountOut/sqrtPriceAfter/tickAfter/liquidityAfter）；两种都符合（歧义）或都不符合 → 排除。
+3. **feePaid 链上反推的精确条件**（否则会得到 2×/3× 的错误值）：跨区块 + 区间内流动性不变 + **该笔是其区块最后一笔 Swap**（feeGrowthGlobal 只在区块末读取，同块后续 Swap 的手续费会混入 Δfg）+ 协议费为 0；重建用 `ceil(Δfg×L/2^128)`。本次 59 条全部逐位一致。
+4. **池历史下界**：本池最早的 ModifyLiquidity 在块 **458201**（不是此前误用的 3077585）——用错下界会导致 tick 表不完整，跨 tick 样本全部无法复现（表现为「假设检验均不匹配」激增、跨 tick 覆盖为 0）。生成器改用 PositionManager 部署块 256083 作为下界。
+5. **fixture 元数据**：SHA-256 + gzip SHA-256 + 区块范围 + Pool ID + 生成器 commit；测试强制断言独立性标记，避免「测试通过=自证」。
+6. **统计口径**：按 mode 直接计数；排除原因逐类计数并写入 fixture，便于 review 复核。
+
+**踩坑记录**：`v4math.reference.test.js` 中 exact-out 向量必须传 `expected.amountOut` 作为指定金额（传 amountIn 会得到巨大偏差）；`swap-vectors.test.js` 的跨 tick 子集必须用向量自带的 mode 重放。

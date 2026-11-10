@@ -1,6 +1,6 @@
 # M2 模拟器 — 方法、验证与边界（review 修订版）
 
-> 生成日期：2026-11-10（P0-1 ~ P0-4 修订）｜ 阶段：M2（模拟器）｜ 状态：修订完成，待二次 review
+> 生成日期：2026-11-10（P0-1 ~ P0-4 修订 + P0-3 二次修订：参考向量独立性）｜ 阶段：M2（模拟器）｜ 状态：修订完成，待二次 review
 >
 > **M2 全程只模拟：不构造交易、不请求任何签名、不发交易。** 白名单所有地址 `writeEnabled=false`，前后端运行时拦截器均在位。
 
@@ -10,16 +10,17 @@
 |---|---|---|
 | **P0-1** | `analysis.js` 使用 `CHAIN.ID`（不存在）→ 收益速度查询恒为空 | 改为 `CHAIN.id`；全仓搜索确认无同类大小写错误；查询前增加 `if (!Number.isInteger(CHAIN.id)) throw`（禁止把参数错误静默当成「采样不足」）；收益速度与 Break-even 抽成纯函数并加回归测试 |
 | **P0-2** | PM 对照报告只并排展示截断的 ABI 串，无机器可判定断言 | 脚本重写：**权威选择器集合取自官方已部署合约的 ABI（Sourcify 验证源）**；Probe 返回值**解码后**按 same-value / same-shape / chain-specific 三类断言，逐项 PASS/FAIL；目标地址代码存在性检查；报告分开陈述结论 |
-| **P0-3** | 跨 tick Swap 的手续费/取整未按 V4 逐步语义验证 | `lib/v4math.js` 按官方源码（`SwapMath.computeSwapStep` / `SqrtPriceMath`）**逐行重写**；用链上真实 Swap 事件生成参考向量回归：**8455/8455 逐位一致**（含 919 笔跨 tick） |
-| **P0-4** | 缺少可重复运行的自动化回归测试 | 新增 6 个测试文件、41 个用例（含 8455 条链上向量离线重放）：`bun run test` |
+| **P0-3** | 跨 tick Swap 的手续费/取整未按 V4 逐步语义验证 | `lib/v4math.js` 按官方源码（`SwapMath.computeSwapStep` / `SqrtPriceMath`）**逐行重写**；建立**与生产代码完全分离的独立参考实现**（`backend/reference/v4/`，官方源码移植），并以链上真实 Swap 事件做参考向量回归：**3000/3000 逐位一致**（含 124 笔跨 tick、124 笔多步） |
+| **P0-4** | 缺少可重复运行的自动化回归测试 | 新增 7 个测试文件、**49 个用例**（含 3000 条链上向量离线重放 + 生产实现 vs 独立参考实现交叉验证）：`bun run test` |
+| **P0-3 二次** | 原 8455 条 fixture 由生产实现「先猜模式再重放」，构成自证循环；缺 feePaid / 独立性标记 | 向量生成器重写（见第 2 节）：模式只能来自 **calldata 解码**或**排他性假设检验**（两种模式必须恰有一种符合链上全部可观测值，歧义样本一律排除）；新增**独立参考实现**用于模式判定与 feePaid 推导；fixture 增加 `expected.feePaid`、`validation.independentReference / feePaidChecked / productionCodeUsedInGeneration`、`source.modeSource`、SHA-256 与区块范围元数据；测试改为**逐位断言 amountIn/amountOut/feePaid + 强制断言独立性标记**，不再依赖 `mismatchCount` 自证 |
 | 口径修正 | 「无常损失」「V4 精确估算」「行为级验证完成」等表述过强 | 字段与文案改为：`lpVsHodlExcludingCurrentFeesUsd`（近似 IL）、`requiredVolumeApproxUsd`（静态近似）、`projectedBalanceAfterRemove`（不含 Gas）；文档统一写「本地 V4 数学估算，非官方 Quoter」与「只读 Probe 对照完成，写路径仍未验证」 |
 
 ## 1. 运行测试
 
 ```bash
 cd backend
-bun run test                       # 41 个用例（含 8455 条链上向量离线重放）
-node scripts/swap-vectors.js       # 重新从链上生成参考向量（只读，约 20 秒）
+bun run test                       # 49 个用例（含 3000 条链上向量离线重放 + 跨实现交叉验证）
+node scripts/swap-vectors.js       # 重新从链上生成参考向量（只读，约 4.5 分钟；CI 默认离线使用已提交的 fixture）
 node scripts/pm-behavior-compare.js # 重新生成 PM 只读对照报告
 ```
 
@@ -28,7 +29,8 @@ node scripts/pm-behavior-compare.js # 重新生成 PM 只读对照报告
 | 文件 | 覆盖内容 |
 |---|---|
 | `tests/v4math.test.js` | TickMath 边界与往返、tick 对齐、金额↔流动性往返、**两步取整**、费率 0/1%、跨 tick、价格限制、exact-out 对称性、极小金额 |
-| `tests/swap-vectors.test.js` | 8455 条链上真实 Swap 向量逐位复现 + 跨 tick 子集单独校验 |
+| `tests/swap-vectors.test.js` | 3000 条链上真实 Swap 向量逐位复现（amountIn/amountOut/feePaid/sqrtPrice/tick/流动性）+ exact-out 子集 + 跨 tick 子集 + **独立性元数据强制断言** |
+| `tests/v4math.reference.test.js` | **生产实现 vs 独立参考实现**：TickMath 往返/边界、金额换算取整方向、全部 3000 条向量逐位一致、随机构造场景 |
 | `tests/analysis.test.js` | 收益速度（样本不足/跨度不足/正常）、Break-even（高于 HODL/低于 HODL/出区间/负桥接成本/缺价格） |
 | `tests/ledger.test.js` | 加仓、减仓、完全撤池、多次加减仓、同区块多事件、重复同步幂等 |
 | `tests/simulator.test.js` | gas 错误分类、撤池后预计余额口径、尘埃阈值 |
@@ -36,15 +38,35 @@ node scripts/pm-behavior-compare.js # 重新生成 PM 只读对照报告
 
 ## 2. Swap 数学：如何验证（P0-3 的核心）
 
-**方法**：用池子真实发生的事件做参考向量，而不是自造样例。
+**方法**：用池子真实发生的事件做参考向量，且**模式（exact-in / exact-out）与输入金额不允许由本地模型反推猜测**。
 
-1. 拉取最近 12 万区块（约 200 分钟）内该池的 **全部 Swap 事件**与 **ModifyLiquidity 事件**（无 sender 过滤，含非 PM 的流动性来源）；
-2. 按 (block, logIndex) 归并，**只保留「相邻两笔 Swap 之间没有任何流动性变化」的样本** → 前一笔的后状态就是后一笔的精确前状态（含 tick / 流动性 / 价格）；
-3. 用前状态 + 本笔输入（或输出）跑本地估算，与链上真实结果逐项比对：`amountOut / sqrtPriceAfter / tickAfter / liquidityAfter` **必须完全一致**；
-4. 生成的向量落到 `backend/tests/fixtures/swap-vectors.json`，测试离线重放（不依赖网络）。
+### 2.1 向量来源与模式判定（禁止自证循环）
 
-**结果（2026-11-10）**：**8455 / 8455 逐位一致，0 不一致**。
-覆盖：zeroForOne 4706 / oneForZero 3749 / **跨 tick 919** / partial 10 / 极小金额 34；模式分布：exact-in 8414 / exact-out 41（另有价格限制终止样本并入其中）。
+1. 拉取该池**全历史**（自 PositionManager 部署块 256083 起）的 Swap 与 ModifyLiquidity 事件（无 sender 过滤）；
+2. 按 (block, logIndex) 归并，**只保留「相邻两笔 Swap 之间没有任何流动性变化」的样本** → 前一笔的后状态就是后一笔的精确前状态；
+3. 模式判定有两条互斥路径，**只用其一**：
+   - **方案 A（calldata 解码）**：交易 calldata 可由 `backend/reference/v4/router.js` 完整解码（Universal Router `execute` + `V4_SWAP` 动作、多布局变体、哨兵限价）→ 模式与金额直接取自 calldata；限价语义再用链上结果确认（哨兵 / 滑点推导），两者都不符合则**排除**；
+   - **方案 B（排他性假设检验）**：无法解码时，分别假设 exact-in 与 exact-out 跑**独立参考实现**，要求**恰好一种**假设能复现链上全部可观测值（`amountIn / amountOut / sqrtPriceAfter / tickAfter / liquidityAfter`）。**两种都符合（歧义）或都不符合一律排除**；
+4. **期望值全部取自链上事件**；模式判定所用参考实现与生产实现完全分离（`backend/reference/v4/`），生成时运行时断言未加载 `lib/v4math.js`；
+5. 限价语义另做检查：把备选限价代入重算，结果必须与主限价一致（不敏感），或已由链上结果确认；
+6. fixture 落地 `backend/tests/fixtures/swap-vectors.json` + `.gz` + `swap-vectors.meta.json`（SHA-256、gzip SHA-256、区块范围、Pool ID、生成器 commit）；测试离线重放，**不依赖网络**。
+
+### 2.2 feePaid 的口径
+
+| 来源 | 条件 | 数量（本次） |
+|---|---|---|
+| `onchain-feeGrowthGlobal` | 跨区块、区间内流动性不变、且该笔是其区块最后一笔 Swap（`feeGrowthGlobal` 只在区块末读取，同块后续 Swap 会混入 Δfg）、协议费为 0 | 59（**与参考实现逐位一致 59/59**） |
+| `independent-reference` | 其余样本（跨 tick 使 `Δfg×L/2^128` 反推不精确等） | 2941 |
+
+### 2.3 结果（2026-11-10 二次修订后重新生成）
+
+- **3000 / 3000 逐位一致，0 不一致**（amountIn、amountOut、feePaid、sqrtPriceAfter、tickAfter、liquidityAfter 全项逐位相等）；
+- 模式来源：calldata 解码 17 / 排他性假设检验 2983；**歧义样本 0**；
+- 覆盖：zeroForOne 1668 / oneForZero 1332 / **跨 tick 124** / 多步 124 / 极小金额 6；exact-in 2997 / exact-out 3；
+- 排除统计（透明列出）：假设检验均不匹配 429、限价敏感 260、区间内流动性变化 2962、同区块多笔 Swap 5917、calldata 未知路由器选择器 1509 等；
+- 生产实现与独立参考实现另做**全量交叉验证**（`tests/v4math.reference.test.js`）：3000 条向量 + 120 组随机构造场景逐位一致。
+
+> **口径声明**：以上验证的是「本地 Swap 数学 vs 链上 Swap 事件」，**不等于**「与官方实现行为完全等价」——写路径、极端参数、hook/协议费非零场景未覆盖。fixture 中的 59 条 feePaid 有链上反推值，其余为独立参考实现推导（已在 `expected.feePaidSource` 标注）。
 
 **过程中被链上数据纠正的实现细节（都写进了代码注释与测试）**：
 
@@ -61,7 +83,7 @@ node scripts/pm-behavior-compare.js # 重新生成 PM 只读对照报告
 ## 3. 计算口径（字段与含义）
 
 ### 3.1 本地 V4 数学（`lib/v4math.js`）
-- `sqrtPriceX96AtTick`：decimal.js（80 位）+ ceil，与 Python 高精度真值逐位一致；注：链上 TickMath 为定点位运算，在 MAX_TICK 处与数学真值存在约 4e-20 相对偏差（活跃区间内逐位一致，已由 8455 条向量验证）；
+- `sqrtPriceX96AtTick`：decimal.js（80 位）+ ceil，与 Python 高精度真值逐位一致；注：链上 TickMath 为定点位运算，在 MAX_TICK 处与数学真值存在约 4e-20 相对偏差（活跃区间内逐位一致，已由 3000 条向量 + 独立参考实现验证）；
 - 金额/流动性：BigInt 定点（Q96），无浮点误差；
 - 兑换估算：**逐步**语义 + 跨 tick 走位 + 价格限制，输出 `amountIn / amountOut / feePaid / sqrtPriceAfter / tickAfter / liquidityAfter / priceChangePct / priceImpactPct / ticksCrossed / partial / limitReached`。
 
@@ -91,7 +113,7 @@ node scripts/pm-behavior-compare.js # 重新生成 PM 只读对照报告
 
 ## 4. 已知边界（如实声明）
 1. 所有结果都是**本地估算**，不是链上执行结果；M3 真实操作以链上为准；
-2. 本地数学不是官方 Quoter：已用 8455 条链上真实 Swap 向量逐位验证，但**未覆盖极端 tick（|tick| > 1e5）与极端流动性场景**；
+2. 本地数学不是官方 Quoter：已用 3000 条链上真实 Swap 向量逐位验证（并与独立参考实现交叉验证），但**未覆盖极端 tick（|tick| > 1e5）、极端流动性、协议费非零与 hook 场景**；模式判定无法覆盖的路由器（私有 calldata）样本已全部排除，不做猜测；
 3. PositionManager 只完成**只读 Probe 对照**（选择器集合、错误语义、permit2 不变量、chain-specific 目标关系），**写路径行为未验证** → 保持 `pending-official`；
 4. 收益速度与年化依赖采样积累，样本不足不显示（不使用单日尖峰推导）；
 5. 池龄 < 7 天为硬性红色警告（当前池 2026-11-09 创建）；
@@ -100,6 +122,7 @@ node scripts/pm-behavior-compare.js # 重新生成 PM 只读对照报告
 ## 5. 数据源与端点
 - 池状态/头寸：StateView + PositionManager（链上）；
 - 台账：PoolManager `ModifyLiquidity` 事件索引；
-- 参考向量：池 Swap 事件（链上，8455 条）；
+- 参考向量：池 Swap 事件（链上，3000 条；模式来源：calldata 17 / 排他性假设检验 2983）；
+- 独立参考实现：`backend/reference/v4/`（官方 v4-core 源码移植，仅用于向量生成与交叉验证，不参与生产路径）；
 - PM 对照：Sourcify 验证源 ABI + 三链 eth_getCode/eth_call；
 - 美元价格：Surf 市场数据（主）+ DexScreener（备），均带来源与时间戳。
