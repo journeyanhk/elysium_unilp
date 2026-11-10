@@ -174,6 +174,9 @@ exports.txGateAttempts = pgTable('tx_gate_attempts', {
   reject_code: text('reject_code'),
   reject_reason: text('reject_reason'),
   gate_version: text('gate_version'),
+  intent_id: text('intent_id'), // 授权绑定的 intent（便于签名前按 intent 找回授权）
+  binding_hash: text('binding_hash'), // 交易内容级授权绑定哈希（M3.2 最终评审 P0-2）
+  binding: text('binding'), // 绑定内容快照（JSON：intentId/chainId/to/value/calldataHash/...）
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
 });
 

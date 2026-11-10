@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { TX_GATE, assertTxAllowed, authorizeTx, evaluateTxRequest, txGateStatus } = require('../config/tx-gate');
-const { CONTRACTS, TOKENS, POOLS } = require('../config/whitelist');
+const { CHAIN, CONTRACTS, TOKENS, POOLS } = require('../config/whitelist');
 const { assertWriteEnabled, isWriteEnabled } = require('../lib/tx-guard');
 const gateState = require('../lib/tx-gate-state');
 
@@ -27,6 +27,11 @@ const baseReq = {
   key: 'positionManager',
   selector: '0xdd46508f',
   intentType: 'mint',
+  intentId: 42,
+  chainId: CHAIN.id,
+  to: CONTRACTS.positionManager.address,
+  value: '0',
+  calldataHash: '0x' + 'ab'.repeat(32),
   amountUsd: 5,
   slippageBps: 50,
   hasMinOut: true,

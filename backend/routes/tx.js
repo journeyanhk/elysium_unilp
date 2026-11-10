@@ -12,8 +12,10 @@
 const express = require('express');
 const router = express.Router();
 const { dbQuery } = require('@surf-ai/sdk/db');
+const { loadLatestAuthorization } = require('../lib/tx-gate-state');
 const { buildIntent } = require('../lib/tx-build');
 const { simulate, checkSimulationUser } = require('../lib/tx-simulate');
+const { preSignCheck } = require('../lib/tx-binding');
 const { assertTxAllowed, txGateStatus, evaluateTxRequest } = require('../config/tx-gate');
 const { recordAttempt, loadGateState } = require('../lib/tx-gate-state');
 const simulator = require('../lib/simulator');
@@ -165,6 +167,37 @@ router.post('/simulate', async (req, res) => {
   } catch (e) {
     res.status(400).json({ error: String(e.message).slice(0, 400) });
   }
+});
+
+/**
+ * 签名前核对（只读，M3.2 最终评审 P0-2）：
+ * 用真实 calldata 重算哈希，并与「已授权绑定」逐项比对（intentId / chainId / to / value / calldataHash）。
+ * 任何字段变化都必须重新 build → simulate → authorize；本接口不签名、不广播。
+ */
+router.post('/pre-sign-check', async (req, res) => {
+  const { intentId, calldata, to, value = '0', chainId = null } = req.body || {};
+  if (!intentId) return res.status(400).json({ error: '缺少 intentId' });
+  const { rows } = await dbQuery('SELECT * FROM tx_intents WHERE id = $1', [intentId]);
+  if (!rows.length) return res.status(404).json({ error: `intent ${intentId} 不存在` });
+  const it = rows[0];
+  const authorization = await loadLatestAuthorization({ intentId });
+  if (!authorization) {
+    return res.json({
+      ok: false,
+      reason: '该 intent 尚无门禁授权记录（未经过 authorizeTx），禁止签名',
+      intentUser: it.user_addr,
+    });
+  }
+  const check = preSignCheck({ authorization, intent: { calldataHash: it.calldata_hash }, calldata, to, value, chainId });
+  res.json(safeJson({
+    ok: Boolean(check.ok),
+    reason: check.reason || null,
+    calldataHash: check.calldataHash || null,
+    authorizedAt: authorization.at,
+    bindingHash: authorization.bindingHash,
+    intentUser: it.user_addr,
+    notes: ['本接口只做核对，不签名、不广播'],
+  }));
 });
 
 /**

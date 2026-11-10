@@ -192,6 +192,18 @@ tx_audit     审计（intent_id、用户确认时间、签名者地址、交易�
 
 **测试总数**：121 → **139**（新增 17 条：并发原子性 6、fail-closed 与状态持久化 11）。
 
+## 13. M3.2 最终评审阻塞项修复记录（P0-1 / P0-2）
+
+| 项 | 要求 | 实现 | 证据 |
+|---|---|---|---|
+| **P0-1** | 额度三桶必须在同一数据库事务内，不得依赖多次 UPDATE + 补偿 | 改为**单条原子语句**：`WITH locked(... FOR UPDATE) → cur(读最新计数) → dec(统一判定) → m/d(三桶更新，同挂 pass 条件)`；全或无；日笔数与日金额合并为同一条 UPDATE（Postgres 同语句两 CTE 改同一行只有一个生效） | 真实 Postgres：①日金额不足时**分钟/日笔数保持 0**（无半占用）；②连接在第二步断开 → 桶全未占用且会话仍可用；③结果缺失 → 拒绝且桶未变；④并发 5 请求 + 每分钟 1 → 恰好 1 通过 |
+| **P0-1 附加** | — | 发现该数据库代理为**每进程一条共享会话**：一次失败事务会污染整个进程（实测 cron 被连带打死）→ 新增 `dbQuerySafe()`（识别 `current transaction is aborted` → ROLLBACK → 重试）+ 事务互斥锁 + 出错即回滚 | 实测：后端 `stateSource` 从 `unavailable` 自动恢复为 `postgres` |
+| **P0-1 说明** | 要求使用 `BEGIN…COMMIT` | 代理在**带参数**时走预处理语句，Postgres 拒绝多语句（`cannot insert multiple commands into a prepared statement`）→ 采用其等价的真正原子形式：单条语句 + `FOR UPDATE` 行锁 + 锁后判定 | 见 §4.1.1 与测试 |
+| **P0-2** | 授权必须绑定 exact intent / calldataHash，签名前重算核对 | 新增 `lib/tx-binding.js`：`computeBinding` / `bindingHashOf` / `verifyBinding` / `preSignCheck`；门禁新增 `BINDING_MISSING` / `CHAIN_MISMATCH` / `TO_MISMATCH`；审计新增 `intent_id` / `binding_hash` / `binding`；新增只读接口 `POST /api/tx/pre-sign-check` | `tests/tx-binding.test.js`（15 条）：授权 A 不能用于交易 B；calldata/to/value/chainId 任一变化 → 拒绝；无授权绑定 → 拒绝；intent 被替换 → 拒绝 |
+| **P0-3** | PM 官方身份 + 用户书面风险接受 | 保持 `pending-official`；**未写 unlockRecord、未打开任何开关** | 门禁 `enabled=false`、`unlockPath=null`、全部 writeEnabled=false |
+
+门禁版本：`M3-gate-3` → **`M3-gate-4`**。测试：139 → **154**。
+
 ## 9. 本阶段复核点（请 review）
 
 1. 门禁模型（双重门禁 + 解锁记录 + 熔断）是否足够；

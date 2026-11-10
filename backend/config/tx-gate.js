@@ -17,10 +17,12 @@
  *   [x] 额度/频率为**原子占用**（条件 UPDATE + 行锁，见 lib/tx-gate-state.js reserveQuota；并发测试 tests/tx-gate-concurrency.test.js）
  *   [x] 审计失败 → 门禁拒绝（fail-closed）：authorizeTx() 在审计写入失败时释放额度并拒绝
  *   [x] txGateStatus() 读取**持久化**熔断状态，不再返回静态配置值
+ *   [x] 交易内容级绑定（intentId / chainId / to / value / calldataHash）——授权不得被复用到别的交易
  */
-const { CONTRACTS, TOKENS } = require('./whitelist');
+const { CONTRACTS, TOKENS, CHAIN } = require('./whitelist');
+const { computeBinding, bindingHashOf, assertBindingComplete } = require('../lib/tx-binding');
 
-const GATE_VERSION = 'M3-gate-3';
+const GATE_VERSION = 'M3-gate-4';
 
 const TX_GATE = {
   version: GATE_VERSION,
@@ -133,6 +135,16 @@ function evaluateTxRequest(req = {}, state = {}, config = TX_GATE) {
 
   // 逐合约写开关（与 config/whitelist.js 同步，由测试保证一致性）
   if (!allowed.writeEnabled) return deny('WRITE_DISABLED', `白名单条目「${req.key}」的 writeEnabled=false`);
+
+  // —— 交易内容级绑定（M3.2 最终评审 P0-2）：授权必须绑定完整交易，防止「A 的授权被 B 复用」 ——
+  const bind = assertBindingComplete(req);
+  if (!bind.ok) return deny('BINDING_MISSING', `缺少交易绑定字段：${bind.missing.join(', ')}（授权必须绑定完整交易内容）`);
+  if (Number(req.chainId) !== CHAIN.id) {
+    return deny('CHAIN_MISMATCH', `绑定 chainId ${req.chainId} 与白名单链 ${CHAIN.id} 不一致`);
+  }
+  if (String(req.to).toLowerCase() !== String(allowed.address).toLowerCase()) {
+    return deny('TO_MISMATCH', `绑定收款合约 ${req.to} 与白名单条目「${req.key}」地址 ${allowed.address} 不一致`);
+  }
 
   // —— 金额与额度 ——
   const cap = config.firstTxMode ? L.firstTxMaxUsd : L.perTxMaxUsd;
@@ -252,6 +264,10 @@ async function authorizeTx(req = {}, deps = {}) {
     try { await record(req, decision); } catch { /* 拒绝路径不因审计失败而放行 */ }
     throw _reject(decision);
   }
+
+  // 绑定（授权即绑定这份完整交易内容；审计与后续签名前核对都以此为准）
+  decision.binding = computeBinding(req);
+  decision.bindingHash = bindingHashOf(decision.binding);
 
   // 1) 原子占用额度（并发下由条件 UPDATE 保证不超额）
   let quota;

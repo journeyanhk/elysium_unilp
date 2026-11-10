@@ -131,6 +131,17 @@
 
 测试：121 → **139/139**。
 
+## M3.2 最终评审阻塞项修复（门禁 `M3-gate-4`，2026-11-10）
+
+| 项 | 处理 | 证据 |
+|---|---|---|
+| P0-1 事务原子性 | 额度占用改为**单条原子语句**：`FOR UPDATE` 锁行 → 读最新计数 → 统一判定 → 三桶更新同挂同一 `pass` 条件（全或无）；日笔数+日金额合并为一条 UPDATE | 真实 Postgres：日金额不足时分钟/日笔数保持 0；连接断开 → 无半占用且会话可用；结果缺失 → 拒绝且桶未变；并发 5 + 每分钟 1 → 恰好 1 通过 |
+| P0-1 附带发现 | 该代理为**每进程一条共享会话**，失败事务会污染整个进程（cron 被连带打死）→ `dbQuerySafe()` 自愈 + 事务互斥锁 + 出错回滚 | 后端 `stateSource` 由 `unavailable` 自动恢复 `postgres` |
+| P0-2 授权绑定 | `lib/tx-binding.js`：绑定 intentId/chainId/to/value/calldataHash/actions/PoolKey/deadline/minOut/报价与预演区块；门禁 `BINDING_MISSING`/`CHAIN_MISMATCH`/`TO_MISMATCH`；审计加 `intent_id`/`binding_hash`/`binding`；只读接口 `POST /api/tx/pre-sign-check` 签名前重算核对 | `tests/tx-binding.test.js` 15 条 |
+| P0-3 PM 身份 | 保持 `pending-official`；未写 unlockRecord、未打开任何开关 | 门禁 `enabled=false`、`unlockPath=null` |
+
+测试：139 → **154/154**。
+
 ## 下一步（M3 预览）
 
 - 交易开关（官方确认 或 用户知情接受 + 首笔小额）

@@ -1,6 +1,6 @@
 # M3 小额交易安全门禁（Transaction Safety Gate）
 
-> 版本：`M3-gate-3`（2026-11-10，M3.2 补齐原子额度、fail-closed 审计与持久化状态）｜ 代码：`backend/config/tx-gate.js` + `backend/lib/tx-gate-state.js` + `backend/lib/tx-parse.js`｜ 测试：`tests/tx-gate.test.js`、`tests/tx-parse.test.js`、`tests/tx-rpc-guard.test.js`、`tests/tx-build.test.js`（全部通过）
+> 版本：`M3-gate-4`（2026-11-10，M3.2 最终评审：额度占用改为数据库原子语句、授权绑定完整交易内容）｜ 代码：`backend/config/tx-gate.js` + `backend/lib/tx-gate-state.js` + `backend/lib/tx-parse.js`｜ 测试：`tests/tx-gate.test.js`、`tests/tx-parse.test.js`、`tests/tx-rpc-guard.test.js`、`tests/tx-build.test.js`（全部通过）
 >
 > **当前状态：全部关闭。** 未经下一轮 review，不得打开真实交易、签名、Approve、Permit2、mint、burn、collect 或 `modifyLiquidities`。
 
@@ -72,7 +72,47 @@
 | 滑点 / minOut / 报价新鲜度 / 价格影响 / deadline | 逐项强制，无自动放宽分支 |
 | 熔断 | `lib/tx-gate-state.js`（Postgres，append-only）：`trip` 需原因，`clear` **必须**提供人工复核记录与操作人；`storeKind` 固定 `postgres`，测试禁止内存实现 |
 
-## 4.1.1 原子额度占用（M3.2 review P0-1）
+## 4.1.1 原子额度占用（M3.2 review P0-1 / 最终评审 P0-1）
+
+**当前实现：单条 Postgres 原子语句**（不是「多次 UPDATE + 失败补偿」）：
+
+```sql
+WITH locked AS (SELECT ... WHERE bucket_key IN ($1||分钟, $2||日) ORDER BY bucket_key FOR UPDATE),
+     cur AS (...从 locked 读取最新计数...),
+     dec AS (SELECT (locked_n = 2 AND 分钟<上限 AND 日笔数<上限 AND 日金额+本次<=日上限) AS pass,
+                    CASE ... END AS reject_code FROM cur),
+     m AS (UPDATE 分钟桶 SET tx_count = tx_count + 1 WHERE ... AND (SELECT pass FROM dec) RETURNING ...),
+     d AS (UPDATE 日桶 SET tx_count = tx_count + 1, amount_cents = amount_cents + 本次 WHERE ... AND (SELECT pass FROM dec) RETURNING ...)
+SELECT (SELECT pass FROM dec) AS ok, (SELECT reject_code FROM dec) AS reject_code, ...;
+```
+
+- **先锁行再判定再更新**，三步在**同一条语句**内完成 → Postgres 自动把单条语句包成事务，天然全或无；
+- 三桶的更新都挂在同一个 `pass` 条件上：任一项不满足 → **三个桶都不变**（不存在「先更新再补偿」）；
+- 并发请求在 `FOR UPDATE` 上排队，锁后重新读取最新计数 → 并发不会超额；
+- 日笔数与日金额必须在**同一条 UPDATE** 内完成（Postgres 同一语句中两个 CTE 改同一行时只有一个会生效）；
+- 为什么不用 `BEGIN; ...; COMMIT;`：本数据库代理在带参数时走预处理语句（扩展协议），Postgres 明确拒绝
+  `cannot insert multiple commands into a prepared statement` —— 多语句事务在带参数时不可用；
+  单条语句（含 `FOR UPDATE`）即为其上可用的真正原子操作。
+- 出错时在同一把进程内互斥锁中发 `ROLLBACK`；并新增 `dbQuerySafe()`：识别
+  `current transaction is aborted` 后自动回滚并重试一次 —— 该代理是**每进程一条共享会话**，
+  一次失败事务会拖垮整个后端进程的查询（实测连 cron 采样都被连带打死），此包装已修复该风险。
+
+## 4.1.1b 授权绑定完整交易内容（最终评审 P0-2）
+
+`authorizeTx()` 现在把**完整交易内容**算成绑定对象与 `bindingHash` 并写入审计：
+
+```text
+intentId / chainId / to / value / calldataHash / selector / key / intentType / amountUsd /
+deadline / minOut / quoteBlock / simBlock / simBlockHash / simResultHash / actions / poolId
+```
+
+- 门禁新增校验：`BINDING_MISSING`（缺绑定字段）、`CHAIN_MISMATCH`、`TO_MISMATCH`（`to` 必须等于该白名单条目地址）；
+- 审计表新增 `intent_id` / `binding_hash` / `binding` 三列，可按 intent 找回授权；
+- 新增只读接口 `POST /api/tx/pre-sign-check`：用**真实 calldata** 重算哈希，与授权绑定逐项比对，
+  任何字段变化都会返回「必须重新 build → simulate → authorize」；本接口不签名、不广播；
+- 因此「交易 A 获得授权 → 实际发送交易 B」的路径被关闭：B 的 calldata 哈希与 A 的绑定不同，核对必然失败。
+
+## 4.1.2 审计 fail-closed（M3.2 review P0-2）
 
 「先读计数 → 判断 → 再记录」在并发下会被绕过（两个请求都读到 0 笔，都通过）。现在改为**带条件的原子 UPDATE**：
 

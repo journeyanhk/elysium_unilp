@@ -10,6 +10,7 @@ const assert = require('node:assert');
 const { dbQuery } = require('@surf-ai/sdk/db');
 const { reserveQuota, releaseQuota, loadBuckets } = require('../lib/tx-gate-state');
 const { TX_GATE, authorizeTx } = require('../config/tx-gate');
+const { CHAIN, CONTRACTS } = require('../config/whitelist');
 
 const NS = `testconc${Date.now().toString(36)}-`;
 let dbUp = false;
@@ -88,6 +89,7 @@ test('并发 authorizeTx（真实数据库额度 + 每分钟 1 笔）→ 只有 
   const config = unlockedCfg({ maxTxPerMinute: 1, maxTxPerDay: 99, dailyMaxUsd: 9999 });
   const req = {
     key: 'positionManager', selector: '0xdd46508f', intentType: 'mint', amountUsd: 5,
+    intentId: 7, chainId: CHAIN.id, to: CONTRACTS.positionManager.address, value: '0', calldataHash: '0x' + 'cd'.repeat(32),
     slippageBps: 50, hasMinOut: true, gasPriceGwei: 1, gasUsd: 0.2, quoteAgeSec: 5, priceImpactPct: 0.1,
   };
   const results = await Promise.allSettled(
@@ -116,6 +118,57 @@ test('补偿释放：占用后释放 → 计数回到 0（不会永久占用额�
   await releaseQuota(r.reservation);
   const buckets = await loadBuckets({ namespace: ns });
   assert.ok(buckets.every((b) => b.txCount === 0 && b.amountUsd === 0), JSON.stringify(buckets));
+});
+
+test('全或无（真实数据库）：日金额不足时，分钟/日笔数也必须保持 0（不得出现半占用）', async (t) => {
+  if (!dbUp) return t.skip('数据库不可用');
+  const ns = `${NS}t6-`;
+  // 金额 2 USD 超过日上限 1 USD，但笔数上限都很宽松 → 只有金额这一项会失败
+  const config = cfgWith({ maxTxPerMinute: 9, maxTxPerDay: 9, dailyMaxUsd: 1 });
+  const r = await reserveQuota({ amountUsd: 2, config, namespace: ns });
+  assert.equal(r.ok, false);
+  assert.equal(r.code, 'AMOUNT_OVER_DAILY_CAP');
+  const buckets = await loadBuckets({ namespace: ns });
+  assert.ok(buckets.length >= 2, '桶应已创建');
+  assert.ok(
+    buckets.every((b) => b.txCount === 0 && b.amountUsd === 0),
+    `三个桶必须全部未变（不得半占用）：${JSON.stringify(buckets)}`
+  );
+});
+
+test('中途失败不产生半占用，且共享会话不被污染（连接断开场景）', async (t) => {
+  if (!dbUp) return t.skip('数据库不可用');
+  const ns = `${NS}t7-`;
+  const config = cfgWith({ maxTxPerMinute: 1, maxTxPerDay: 1, dailyMaxUsd: 10 });
+  // 注入一个「建桶成功、原子语句断开」的 db：模拟进程/连接在第二步中断
+  let n = 0;
+  const flakyDb = async (sql, params) => {
+    n += 1;
+    if (n > 2) throw new Error('connection terminated unexpectedly');
+    return dbQuery(sql, params);
+  };
+  await assert.rejects(() => reserveQuota({ amountUsd: 1, config, namespace: ns, db: flakyDb }), /connection terminated/);
+  // 桶必须完全没有被占用
+  const buckets = await loadBuckets({ namespace: ns });
+  assert.ok(buckets.every((b) => b.txCount === 0 && b.amountUsd === 0), `不得半占用：${JSON.stringify(buckets)}`);
+  // 会话仍可用：正常占用应当成功
+  const ok = await reserveQuota({ amountUsd: 1, config, namespace: ns });
+  assert.equal(ok.ok, true, '会话必须仍然可用（不得因中断被污染）');
+});
+
+test('事务结果缺失 → 拒绝并回滚，桶保持未占用', async (t) => {
+  if (!dbUp) return t.skip('数据库不可用');
+  const ns = `${NS}t8-`;
+  const config = cfgWith({ maxTxPerMinute: 1, maxTxPerDay: 1, dailyMaxUsd: 10 });
+  let n = 0;
+  const weirdDb = async (sql, params) => {
+    n += 1;
+    if (n > 2) return { rows: [], rowCount: 0 }; // 原子语句没有返回结果
+    return dbQuery(sql, params);
+  };
+  await assert.rejects(() => reserveQuota({ amountUsd: 1, config, namespace: ns, db: weirdDb }), /未返回结果/);
+  const buckets = await loadBuckets({ namespace: ns });
+  assert.ok(buckets.every((b) => b.txCount === 0 && b.amountUsd === 0), `不得半占用：${JSON.stringify(buckets)}`);
 });
 
 test('额度存储不可用 → 占用失败（调用方必须据此拒绝，不得放行）', async () => {

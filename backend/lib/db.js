@@ -4,6 +4,25 @@
  */
 const { dbQuery } = require('@surf-ai/sdk/db');
 
+/**
+ * 会话自愈包装（M3.2 review P0-1 期间发现的真实风险）：
+ * 该数据库代理为**每个进程一条共享会话**，一旦某个显式事务中途报错，会话会停留在
+ * 「current transaction is aborted」状态，导致**整个后端进程**后续所有查询失败
+ * （实测：连 cron 采样都被连带打死）。
+ * 处理：识别该错误 → 先发 ROLLBACK 恢复会话 → 重试一次。
+ */
+async function dbQuerySafe(sql, params = []) {
+  try {
+    return await dbQuery(sql, params);
+  } catch (e) {
+    if (/current transaction is aborted/i.test(String(e && e.message))) {
+      try { await dbQuery('ROLLBACK'); } catch { /* 无活动事务时 ROLLBACK 会告警但不致命 */ }
+      return await dbQuery(sql, params);
+    }
+    throw e;
+  }
+}
+
 let done = null;
 
 function ensureIndexes() {
@@ -28,4 +47,4 @@ function ensureIndexes() {
   return done;
 }
 
-module.exports = { ensureIndexes };
+module.exports = { ensureIndexes, dbQuerySafe };
