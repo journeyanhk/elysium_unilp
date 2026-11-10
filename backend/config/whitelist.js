@@ -21,17 +21,21 @@ const CHAIN = {
   name: 'Elysium',
   nativeCurrency: { name: 'HYPE', symbol: 'HYPE', decimals: 18 },
   rpcEndpoints: [
-    { url: 'https://rpc.elysium.kinetiq.xyz', source: 'official-public', enabled: true, priority: 1 },
+    { url: 'https://rpc.elysium.kinetiq.xyz', source: 'official-public', enabled: true, priority: 1, supportsLogs: true },
+    { url: 'https://elysium.drpc.org', source: 'drpc-public', enabled: true, priority: 2, supportsLogs: false },
   ],
-  // ⚠️ 故障切换（failover）框架预留：当前仅 1 个已核验端点，failover 未启用。
-  // 备用端点准入条件（全部通过才可加入）：
+  // 端点准入检查（2026-11-10 实测，全部通过才启用）：
   //   1) eth_chainId === 99901；
-  //   2) latest 高度与主端点偏差 ≤ 阈值（默认 50 块）；
-  //   3) 往返延迟达标（默认 ≤ 1500ms）；
+  //   2) 区块高度偏差（按时间衡量，本链 0.1s/块）：高度差 ≤ 500 块 且 时间差 ≤ 60s；
+  //   3) 往返延迟 ≤ 1500ms；
   //   4) 关键地址（PoolManager / PositionManager / Permit2）eth_getCode 与主端点一致；
-  //   5) 连续失败次数超阈值自动降权；
+  //   5) 连续失败次数超阈值自动降权（见 lib/chain.js health 记录）；
   //   6) 数据落后超阈值自动剔除；
   //   7) UI 始终显示当前活跃端点。
+  // 实测记录（drpc）：chainId ✓、高度差 0 块 ✓、延迟 49ms（主端点 118ms）✓、
+  //   三合约 getCode 哈希一致 ✓；但 eth_getLogs 不可用（大范围返回空/400）→ supportsLogs=false，
+  //   日志查询固定走主端点（能力路由）。
+  // 注意：两端点均有速率限制（主端点实测触发 429/-32017）→ lib/chain.js 内置退避与轮换。
   explorer: null, // 待确认
 };
 
@@ -50,7 +54,7 @@ const CONTRACTS = {
     status: 'pending-official',
     readEnabled: true,
     writeEnabled: false,
-    evidence: '21/21 函数选择器与官方参考版本一致；runtime 体积 19965B vs 官方 23877B（≈16% 差异），内部实现等价性未完成验证（M2 行为级对照）；当前仅用于只读索引',
+    evidence: 'M2 行为级对照（2026-11-10）：与官方 ETH/Base 部署 37/37 函数选择器一致；同一 calldata 的只读返回与 revert 错误选择器一致（ownerOf 不存在/空 actions/未知 action/multicall）；permit2() 三链返回一致。runtime 体积 19965B vs 官方 23877B（≈16% 差异）——内部实现（存储布局/事件顺序/gas）等价性无法通过只读手段证明，故维持 pending-official + 只读。详见 docs/M2-PM-BEHAVIOR.md',
   },
   positionDescriptor: {
     address: '0x599141dbd536891ef30b81883bfb4a621dc3f496',
@@ -62,11 +66,11 @@ const CONTRACTS = {
   },
   v4Quoter: {
     address: '0x379f556c5a748bd7cc9baf0f7a344094ac1814f5',
-    role: 'V4 Quoter（只读报价）',
-    status: 'pending-official',
-    readEnabled: true,
+    role: 'V4 Quoter 候选（未采用）',
+    status: 'verified-address',
+    readEnabled: false,
     writeEnabled: false,
-    evidence: '函数面识别（quoteExactInputSingle / unlockCallback）',
+    evidence: 'M2 实测：字节码含 11 个选择器，与官方 V4Quoter 不一致（仅 poolManager() 与 unlockCallback(bytes) 匹配；标准 quoteExactInputSingle 选择器不存在），且实测调用 revert(0x) → 报价改用本地数学（lib/v4math.js，已用大整数真值校验），该地址不参与任何读写',
   },
   stateView: {
     address: '0x27ed73ae0652fdcf71d6793412a7525f32be9dfe',

@@ -1,5 +1,5 @@
-// M1 数据库表定义（Drizzle 仅用于声明，实际查询走 dbQuery）
-// 说明：为兼容自建同步逻辑，这里不建唯一索引；事件去重通过「重叠窗口删除 + 重插」实现（见 lib/indexer.js）。
+// M2 数据库表定义（Drizzle 仅用于声明，实际查询走 dbQuery）
+// 说明：唯一索引由 lib/db.js 的 ensureIndexes() 幂等创建（用于 ON CONFLICT 去重）。
 const { pgTable, serial, integer, bigint, text, timestamp } = require('drizzle-orm/pg-core');
 
 // PositionManager Transfer 事件（头寸索引原始数据）
@@ -62,4 +62,37 @@ exports.trackedPositions = pgTable('tracked_positions', {
   first_seen_at: timestamp('first_seen_at', { withTimezone: true }).defaultNow(),
   last_seen_at: timestamp('last_seen_at', { withTimezone: true }).defaultNow(),
   last_block: bigint('last_block', { mode: 'number' }),
+});
+
+// M2：ModifyLiquidity 事件（建仓台账原始数据；salt = tokenId，已链上验证）
+exports.liquidityEvents = pgTable('liquidity_events', {
+  id: serial('id').primaryKey(),
+  chain_id: integer('chain_id').notNull(),
+  pool_id: text('pool_id').notNull(),
+  token_id: text('token_id').notNull(),
+  block_number: bigint('block_number', { mode: 'number' }).notNull(),
+  tx_hash: text('tx_hash').notNull(),
+  log_index: integer('log_index').notNull(),
+  tick_lower: integer('tick_lower').notNull(),
+  tick_upper: integer('tick_upper').notNull(),
+  liquidity_delta: text('liquidity_delta').notNull(),
+  created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+
+// M2：历史区块价格缓存（归档 eth_call 结果，避免重复请求）
+exports.blockPrices = pgTable('block_prices', {
+  id: serial('id').primaryKey(),
+  chain_id: integer('chain_id').notNull(),
+  block_number: bigint('block_number', { mode: 'number' }).notNull(),
+  sqrt_price_x96: text('sqrt_price_x96').notNull(),
+  tick: integer('tick'),
+  created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+
+// M2：区块时间缓存
+exports.blockTimes = pgTable('block_times', {
+  id: serial('id').primaryKey(),
+  chain_id: integer('chain_id').notNull(),
+  block_number: bigint('block_number', { mode: 'number' }).notNull(),
+  block_time: timestamp('block_time', { withTimezone: true }),
 });

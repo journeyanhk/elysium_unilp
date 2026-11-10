@@ -13,7 +13,7 @@ function priceAt(tick: number) {
   return Math.pow(1.0001, tick)
 }
 
-export default function PositionCard({ p }: { p: Position }) {
+export default function PositionCard({ p, onAnalyze }: { p: Position; onAnalyze?: (tokenId: string) => void }) {
   const status = p.closed
     ? { label: '已撤空', cls: 'bg-zinc-700/40 text-zinc-300 border-zinc-600/50' }
     : p.inRange
@@ -92,6 +92,14 @@ export default function PositionCard({ p }: { p: Position }) {
           流动性 {p.liquidity} · 采样 {p.sampleCount} 条 · 更新 {fmtTime(p.lastSampleAt ?? undefined)}
         </div>
         <div className="flex gap-2">
+          {onAnalyze && (
+            <button
+              onClick={() => onAnalyze(p.tokenId)}
+              className="rounded border border-sky-500/40 bg-sky-500/10 px-2 py-1 text-[11px] text-sky-300 hover:bg-sky-500/20"
+            >
+              分析 · 模拟
+            </button>
+          )}
           <button disabled title={writesDisabledReason()} className="cursor-not-allowed rounded border border-zinc-800 px-2 py-1 text-[11px] text-zinc-600">
             领费 · M3
           </button>

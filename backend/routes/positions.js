@@ -26,7 +26,8 @@ router.get('/', async (req, res) => {
     const budgetMs = Math.min(Number(req.query.budgetMs) || 6000, 15000);
     await indexer.syncOnce({ maxMs: budgetMs });
     const index = await indexer.getIndexStatus();
-    const ids = await indexer.candidatesForWallet(address);
+    const cand = await indexer.candidatesForWalletDetailed(address);
+    const ids = cand.ids;
     const prices = await getPrices();
     const bundle = await chain.loadWallet(address, ids);
     // 链上 ownerOf 二次校验（与请求地址比对）
@@ -104,6 +105,7 @@ router.get('/', async (req, res) => {
       chainId: CHAIN_ID,
       at: new Date().toISOString(),
       index: { ...index, needResync: !index.synced || bundle.positions.some((p) => !p.ownerMatches) },
+      candidates: { total: cand.totalCandidates, returned: cand.returned, truncated: cand.truncated },
       rpc: chain.getRpcStatus(),
       prices,
       balances: bundle.balances,

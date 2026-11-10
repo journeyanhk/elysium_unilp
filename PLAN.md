@@ -1,7 +1,7 @@
-# 「KNTQ/HYPE LP 管理器」技术方案与开发计划（v0.3.2）
+# 「KNTQ/HYPE LP 管理器」技术方案与开发计划（v0.4.0）
 
-> 状态：v0.3.2 · 决策已锁定 · M0 修订 R1 完成（待 review 合并）· 下一步 M1 只读看板
-> 更新日期：2026-11-09
+> 状态：v0.4.0 · M0 已合并 · M1 已合并（review 通过）· **M2 模拟器开发完成，待 review**
+> 更新日期：2026-11-10
 > 协作：每阶段一个 PR（review 通过再进下一阶段）；提交署名 xnananx；仓库公开（不含任何密钥）
 > 关联材料：uploads/ 两份分析文档（Elysium 可行性评估、目标是赚手续费应该如何选）
 > 维护约定：讨论结论先更新本文档；动工后另建 MEMORY.md / PROGRESS.md / MAINTENANCE.md
@@ -109,9 +109,10 @@
 
 ## 9. 里程碑（合并你的开发顺序）
 
-- **M0 核验与白名单**（修订 R1 完成，待合并）：核验 Elysium V4 部署身份；产出核验报告 + 白名单（读写分离）。结论：PoolManager 逐字节一致；PositionManager 接口面一致、实现等价性待 M2；官方归属未确认。
-- **M1 只读看板**：钱包连接 → 网络检查 → 余额读取 → **头寸枚举（PositionManager Transfer 事件索引，不依赖 tokenOfOwnerByIndex）** → 池状态读取 → 待领手续费读取 → RPC 健康状态 → 只读卡片（本金/待领收益/年化/美元）、排序、过期提示、隐藏空仓。**M1 全程禁止写操作**（modifyLiquidities / mint / burn / collect / approve / Permit2 / 桥接 / UniversalRouter）。
-- **M2 模拟器**：建仓/撤池模拟、价格与交易量情景、无常损失、Break-even、退出滑点；**含 PositionManager 行为级对照验证**（模拟 mint/collect/burn 与事件对照）。
+- **M0 核验与白名单**（✅ 已合并 main `1c39534`）：核验 Elysium V4 部署身份；产出核验报告 + 白名单（读写分离）。结论：PoolManager 逐字节一致；PositionManager 接口面一致（M2 已完成行为级对照，见下）；官方归属未确认。
+- **M1 只读看板**（✅ 已合并 main `d135736`，review 通过）：钱包连接 → 网络检查 → 余额读取 → **头寸枚举（PositionManager Transfer 事件索引，不依赖 tokenOfOwnerByIndex）** → 池状态读取 → 待领手续费读取 → RPC 健康状态 → 只读卡片（本金/待领收益/年化/美元）、排序、过期提示、隐藏空仓。**M1 全程禁止写操作**（已通过前后端运行时拦截器保证）。
+- **M2 模拟器**（🔨 开发完成，待 review）：建仓模拟（区间/金额/价格影响/预计 NFT/gas/授权与余额预检）、撤池模拟（收到数量/待领手续费/退出滑点/交易后余额/撤空状态）、无常损失 + HODL 对照（**基于建仓台账的净投入数量**）、Break-even（手续费/gas/桥接成本/所需交易量）、价格情景表；**PositionManager 行为级对照**（37/37 选择器一致、只读行为与错误语义一致、permit2 不变量一致；内部实现等价性仍无法只读证明）。**M2 全程只模拟、不签名、不发交易。**
+  - 新增工程能力：本地 V4 数学（大整数真值校验）、本地兑换估算（跨 tick 走位）、ModifyLiquidity 台账索引、历史价格还原（归档 eth_call + 缓存）、RPC 限流退避与多端点能力路由、索引并发互斥、候选头寸截断提示。
 - **M3 手动 LP 操作**：组池、撤池、领取手续费；预览 + 模拟 + 逐笔签名；白名单限制（writeEnabled 按合约逐个开启）；失败原因展示。
 - **M4 Elysium 监测**：桥接状态（独立核验 + 模拟后）、资产核验、官方 AMM 发现、新池提醒。
 - **M5 条件式策略辅助**：池子评分、风险评分、出区间提醒（不自动调仓）。
@@ -130,7 +131,7 @@
 
 **Elysium V4 部署（候选，身份核验详见 docs/M0-VERIFICATION.md 修订 R1）：**
 - PoolManager 候选 `0xe2e105d3f7209a9da11f83ccf3e7398a753823f1`（24009B；与官方构建逐字节一致；2026-11-03 部署）
-- PositionManager 候选 `0x1d1c51b9d07fd27d36412a2b66cc23d19eb3e518`（19965B；接口面 21/21 与官方一致；实现等价性待 M2）
+- PositionManager 候选 `0x1d1c51b9d07fd27d36412a2b66cc23d19eb3e518`（19965B；**M2 对照：37/37 选择器与官方一致，只读行为/错误语义/permit2 不变量一致，内部实现等价性仍无法只读证明**）
 - KNTQ/HYPE 池（2026-11-09 08:49 UTC 创建）：完整 PoolKey 与数据快照见报告 §3.5
 - 其它 v4 风格部署（至少 4 个活跃，不同部署者）：全部排除
 - 部署批次（17 个合约）与创建交易哈希：见报告 §3.1 / §3.4
@@ -167,3 +168,4 @@
 - v0.3（2026-11-09）：锁定决策；接入远端仓库；新增 M6 部署与交付；首次推送。
 - v0.3.1（2026-11-09）：署名 xnananx；钱包 OKX 优先；VPS 完整部署方案；仓库保持公开；M0 启动。
 - v0.3.2（2026-11-09）：M0 修订 R1（依 review）：白名单读写分离（全部 writeEnabled=false）；PoolKey 补全（currency0/currency1/fee/tickSpacing/hooks + 排序规则）；PositionManager 结论降级为「接口面一致、实现等价性待 M2」；目标池状态改为 verified-parameters；BridgeRouter 降级为 verified-address 并限定核验范围；RPC 端点表述修正（failover 未启用 + 准入条件）；M1 头寸枚举改用 Transfer 事件索引；池龄 < 7 天列为硬性警告。
+- v0.4.0（2026-11-10）：M1 已合并；M2 模拟器完成（建仓/撤池模拟、无常损失 + HODL 对照、Break-even、退出滑点、价格情景；PositionManager 行为级对照）。工程更新：**区块速度实测 0.1s/块**（高度阈值改为时间口径、重组窗口放大到 3000 块）；**新增第二 RPC 端点 drpc（通过准入检查，日志查询仅走主端点）**；**RPC 限流退避 + 请求合并（Multicall3）**；V4Quoter 因选择器与官方不符被排除（报价改用本地数学）；ModifyLiquidity 台账（salt=tokenId 已链上验证）+ 历史价格还原；索引并发互斥；候选头寸截断提示。

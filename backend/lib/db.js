@@ -14,6 +14,10 @@ function ensureIndexes() {
         `DELETE FROM tracked_positions a USING tracked_positions b
          WHERE a.id < b.id AND a.chain_id = b.chain_id AND a.token_id = b.token_id`);
       await dbQuery('CREATE UNIQUE INDEX IF NOT EXISTS tracked_positions_chain_token_uniq ON tracked_positions (chain_id, token_id)');
+      // M2：事件与缓存表的唯一索引（供 ON CONFLICT 去重）
+      await dbQuery('CREATE UNIQUE INDEX IF NOT EXISTS liquidity_events_uniq ON liquidity_events (chain_id, tx_hash, log_index)');
+      await dbQuery('CREATE UNIQUE INDEX IF NOT EXISTS block_prices_uniq ON block_prices (chain_id, block_number)');
+      await dbQuery('CREATE UNIQUE INDEX IF NOT EXISTS block_times_uniq ON block_times (chain_id, block_number)');
     })().catch((e) => {
       done = null; // 允许重试
       throw e;
