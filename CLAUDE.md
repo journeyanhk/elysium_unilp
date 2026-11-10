@@ -2,6 +2,9 @@
 
 Built with [Surf SDK](https://github.com/cyberconnecthq/urania/tree/main/packages/sdk).
 
+**接手本项目前先读：`MEMORY.md`（项目记忆）/ `PROGRESS.md`（进度）/ `MAINTENANCE.md`（维护日志）/ `PLAN.md`（方案）/ `docs/M0-VERIFICATION.md`（核验报告）。**
+**安全红线：M1/M2 全程只读——不请求任何钱包签名；所有写操作必须先过 `backend/lib/tx-guard.js` 与 `frontend/src/lib/tx-guard.ts` 拦截器。**
+
 ## Imports from @surf-ai/sdk
 
 The frontend should call your own backend routes under the Vite base path.

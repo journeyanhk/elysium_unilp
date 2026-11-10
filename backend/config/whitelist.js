@@ -134,6 +134,8 @@ const POOLS = {
     activityObserved: true,       // 观察到 Swap / ModifyLiquidity 事件
     stackOfficiallyConfirmed: false, // 所属栈官方归属未确认
     status: 'verified-parameters',
+    createdAt: '2026-11-09T08:49:39Z',
+    createdBlock: 3077585,
     readEnabled: true,
     writeEnabled: false,
     note: '默认目标池（流动性/成交最大）；同交易对存在其他费率档位池；早期数据波动大，不可作为稳定性依据',

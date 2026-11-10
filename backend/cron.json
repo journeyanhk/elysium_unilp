@@ -1,0 +1,10 @@
+[
+  {
+    "id": "sample-pool",
+    "name": "池与头寸采样（年化数据来源）",
+    "schedule": "*/5 * * * *",
+    "handler": "cron/sample.js",
+    "enabled": true,
+    "timeout": 120
+  }
+]
