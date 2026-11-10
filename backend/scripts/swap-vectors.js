@@ -444,8 +444,9 @@ function codeHashesOfGenerationInputs() {
     codeHashes: codeHashesOfGenerationInputs(),
     generatorCommitDirty: (() => {
       try {
+        // 仓库根目录 + 从根目录出发的路径（此前用相对 backend/ 的路径，git 不匹配 → 永远返回 false）
         const root = path.join(__dirname, '..', '..');
-        const out = execSync('git status --porcelain -- scripts/swap-vectors.js reference', { cwd: root }).toString().trim();
+        const out = execSync('git status --porcelain -- backend/scripts/swap-vectors.js backend/reference', { cwd: root }).toString().trim();
         return out.length > 0;
       } catch { return null; }
     })(),
