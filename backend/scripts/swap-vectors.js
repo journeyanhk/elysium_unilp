@@ -421,12 +421,34 @@ function runHypothesis(c, mode, amount, limit) {
     });
   }
 
-  // —— 统计（直接按字段计数）——
+  // 生成输入文件（生成器自身 + 独立参考实现）的 SHA-256 清单
+function codeHashesOfGenerationInputs() {
+  const root = path.join(__dirname, '..');
+  const files = [
+    'scripts/swap-vectors.js',
+    ...fs.readdirSync(path.join(root, 'reference', 'v4')).filter((f) => f.endsWith('.js')).sort().map((f) => `reference/v4/${f}`),
+  ];
+  const out = {};
+  for (const f of files) out[f] = crypto.createHash('sha256').update(fs.readFileSync(path.join(root, f))).digest('hex');
+  return out;
+}
+
+// —— 统计（直接按字段计数）——
   const count = (f) => vectors.filter(f).length;
   const stats = {
     generatedAt: new Date().toISOString(),
     generator: 'backend/scripts/swap-vectors.js',
     generatorCommit: (() => { try { return execSync('git rev-parse HEAD', { cwd: path.join(__dirname, '..', '..') }).toString().trim(); } catch { return null; } })(),
+    // 代码溯源：生成 fixture 时所用「生成器 + 独立参考实现」的逐文件 SHA-256。
+    // 测试会用当前工作树重新计算并比对 —— 一旦参考实现或生成器改动而 fixture 未重新生成，测试即失败。
+    codeHashes: codeHashesOfGenerationInputs(),
+    generatorCommitDirty: (() => {
+      try {
+        const root = path.join(__dirname, '..', '..');
+        const out = execSync('git status --porcelain -- scripts/swap-vectors.js reference', { cwd: root }).toString().trim();
+        return out.length > 0;
+      } catch { return null; }
+    })(),
     rpc: RPC, poolId: POOL_ID, poolManager: POOLM,
     blockRange: { from: start, to: latest, span: latest - start },
     swapsSeen: swaps.length, mlSeen: mlInRange.length + mlBefore.length,
@@ -435,10 +457,21 @@ function runHypothesis(c, mode, amount, limit) {
     exactInVectors: count((v) => v.mode === 'exactIn'),
     exactOutVectors: count((v) => v.mode === 'exactOut'),
     limitTerminatedVectors: count((v) => v.meta.limitReached),
-    mismatchCount: excl.productionIndependent,
+    // 说明：不再使用 mismatchCount 命名（易被误读为「数学不一致」）。
+    // excludedCount 表示被排除 / 无法独立验证的样本数，数学不一致单独由 tests 断言。
+    excludedCount: excl.productionIndependent,
     byModeSource: {
       transactionCalldata: count((v) => v.source.modeSource === 'transaction-calldata'),
       chainObservableHypothesisTest: count((v) => v.source.modeSource === 'chain-observable-hypothesis-test'),
+    },
+    // 独立验证来源统计（统一命名，供 review 直接核对）
+    validationCounts: {
+      calldataDecoded: count((v) => v.source.modeSource === 'transaction-calldata'),
+      exclusiveHypothesis: count((v) => v.source.modeSource === 'chain-observable-hypothesis-test'),
+      feePaidFromChain: count((v) => v.expected.feePaidSource === 'onchain-feeGrowthGlobal'),
+      feePaidFromReference: count((v) => v.expected.feePaidSource === 'independent-reference'),
+      crossTick: count((v) => v.meta.ticksCrossed > 0),
+      multiStep: count((v) => v.meta.steps > 1),
     },
     excluded: {
       ...excl, ...skip, calldataFailures: reasonCounts, txFetchFailed,
@@ -501,13 +534,21 @@ function runHypothesis(c, mode, amount, limit) {
     gzipSha256: crypto.createHash('sha256').update(gz).digest('hex'),
     generatedAt: stats.generatedAt,
     generatorCommit: stats.generatorCommit,
+    generatorCommitDirty: stats.generatorCommitDirty,
+    codeHashes: stats.codeHashes,
+    validationCounts: stats.validationCounts,
     blockRange: stats.blockRange,
     poolId: POOL_ID,
     poolManager: POOLM,
     vectors: vectors.length,
     byModeSource: stats.byModeSource,
     validation: stats.validation,
-    regenerate: 'cd backend && node scripts/swap-vectors.js   # CI 默认离线使用本 fixture',
+    provenanceNotes: [
+      'generatorCommit 是生成 fixture 时所用代码的快照（git rev-parse HEAD）；提交 fixture 后 HEAD 会前进，因此不要求它等于最新提交。',
+      'codeHashes 是生成时「生成器 + 独立参考实现」逐文件 SHA-256；测试会用当前工作树重算并比对，一旦代码改动而 fixture 未重新生成即失败。',
+      'fixture 不是运行测试时动态生成的：测试离线重放已提交的 fixture，不访问 RPC。',
+    ],
+    regenerate: 'cd backend && node scripts/swap-vectors.js   # 改动生成器或 reference/ 后必须重新生成；CI 默认离线使用本 fixture',
   }, null, 2));
   console.log(`\n已写入 swap-vectors.json（${(fs.statSync(file).size / 1024).toFixed(1)} KB）+ .gz（${(gz.length / 1024).toFixed(1)} KB）`);
   console.log(`sha256 = ${sha256}`);

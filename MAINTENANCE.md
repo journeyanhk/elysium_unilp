@@ -87,3 +87,17 @@
 6. **统计口径**：按 mode 直接计数；排除原因逐类计数并写入 fixture，便于 review 复核。
 
 **踩坑记录**：`v4math.reference.test.js` 中 exact-out 向量必须传 `expected.amountOut` 作为指定金额（传 amountIn 会得到巨大偏差）；`swap-vectors.test.js` 的跨 tick 子集必须用向量自带的 mode 重放。
+
+## 2026-11-10（三次）fixture provenance 修订 — 经验
+
+**问题**：fixture 由旧提交的代码生成（生成器与 `reference/v4/*` 在后续提交中改动过），测试只断言 `generatorCommit !== undefined` → 无法发现「代码已变、fixture 未重新生成」。
+
+**做法（可复用）**：
+1. 生成器在生成时记录**逐文件代码哈希**（生成器自身 + 独立参考实现所有 `.js`，共 6 个文件）写入 `stats.codeHashes` 与 `meta.codeHashes`；另记录 `generatorCommitDirty`（生成时工作树是否干净）。
+2. 测试用**当前工作树**重算这些哈希并逐文件比对 → 改代码不重新生成即失败（失败信息直接给出重新生成命令）。
+3. 断言 `meta.generatorCommit === stats.generatorCommit`；文档明确「generatorCommit 是生成快照，不要求等于最新 HEAD；fixture 不是运行时动态生成」。
+4. 测试同时校验 gzip 解压内容与 JSON 完全一致，避免压缩包与 JSON 脱节。
+5. 命名：`mismatchCount` 易被误读为「数学不一致」，改为 `excludedCount`；新增 `validationCounts` 统一统计口径。
+6. 隔离检查进测试：`reference/v4/*` 不得 `require` 生产 `lib/v4math.js`（本次为纯注释提及，已确认无反向依赖）。
+
+**流程教训**：任何会改变 fixture 生成结果的文件（生成器、参考实现、常量）修改后，**必须重新生成并提交 fixture（JSON + gzip + meta）**；重新生成耗时约 4 分钟，属于必须付出的成本。

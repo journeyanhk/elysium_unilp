@@ -15,6 +15,7 @@ const assert = require('node:assert');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const zlib = require('zlib');
 const v4 = require('../lib/v4math');
 
 const FIXTURE_PATH = path.join(__dirname, 'fixtures', 'swap-vectors.json');
@@ -70,7 +71,52 @@ test('fixture 元数据（sha256/字节数）与文件一致', () => {
   assert.equal(meta.sha256, sha, 'fixture sha256 与元数据不一致（文件被手工修改？）');
   assert.equal(meta.bytes, fs.statSync(FIXTURE_PATH).size);
   assert.equal(meta.vectors, fixture.vectors.length);
-  assert.ok(meta.poolId && meta.blockRange && meta.generatorCommit !== undefined);
+  assert.ok(meta.poolId && meta.blockRange);
+  // gzip 同步校验
+  const gz = fs.readFileSync(FIXTURE_PATH + '.gz');
+  assert.equal(crypto.createHash('sha256').update(gz).digest('hex'), meta.gzipSha256, 'gzip sha256 不一致');
+  assert.equal(zlib.gunzipSync(gz).toString(), fs.readFileSync(FIXTURE_PATH, 'utf8'), 'gzip 内容与 JSON 不一致');
+});
+
+test('meta.generatorCommit 与 fixture.stats.generatorCommit 一致（生成快照可追溯）', () => {
+  const meta = JSON.parse(fs.readFileSync(META_PATH, 'utf8'));
+  assert.ok(meta.generatorCommit, 'meta 缺少 generatorCommit');
+  assert.match(meta.generatorCommit, /^[0-9a-f]{40}$/, 'generatorCommit 应为 40 位提交哈希');
+  assert.equal(meta.generatorCommit, fixture.stats.generatorCommit, 'meta 与 stats 的 generatorCommit 不一致');
+  assert.equal(meta.generatorCommitDirty, false, '生成时工作树存在未提交改动（生成器/参考实现），请提交后重新生成');
+});
+
+test('fixture 由当前生成器 + 独立参考实现重新生成（逐文件代码哈希比对）', () => {
+  const meta = JSON.parse(fs.readFileSync(META_PATH, 'utf8'));
+  const backendRoot = path.join(__dirname, '..');
+  const files = [
+    'scripts/swap-vectors.js',
+    ...fs.readdirSync(path.join(backendRoot, 'reference', 'v4')).filter((f) => f.endsWith('.js')).sort()
+      .map((f) => `reference/v4/${f}`),
+  ];
+  const current = {};
+  for (const f of files) {
+    current[f] = crypto.createHash('sha256').update(fs.readFileSync(path.join(backendRoot, f))).digest('hex');
+  }
+  assert.ok(meta.codeHashes && Object.keys(meta.codeHashes).length > 0, 'meta 缺少 codeHashes（生成器或参考实现无溯源信息）');
+  assert.deepEqual(Object.keys(meta.codeHashes).sort(), Object.keys(current).sort(), '生成输入文件清单不一致');
+  for (const f of files) {
+    assert.equal(meta.codeHashes[f], current[f],
+      `${f} 已改动但 fixture 未用最新代码重新生成：请运行 cd backend && node scripts/swap-vectors.js`);
+  }
+});
+
+test('fixture 不得由生产实现参与生成（隔离检查）', () => {
+  // 参考实现目录不得反向依赖生产数学库
+  const backendRoot = path.join(__dirname, '..');
+  const refDir = path.join(backendRoot, 'reference', 'v4');
+  for (const f of fs.readdirSync(refDir).filter((x) => x.endsWith('.js'))) {
+    const src = fs.readFileSync(path.join(refDir, f), 'utf8');
+    const requires = src.match(/require\([^)]*\)/g) || [];
+    for (const r of requires) {
+      assert.ok(!r.includes('v4math'), `reference/${f} 反向依赖生产实现：${r}`);
+    }
+  }
 });
 
 test('样本规模与覆盖达标', () => {

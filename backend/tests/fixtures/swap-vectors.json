@@ -1,27 +1,44 @@
 {
  "stats": {
-  "generatedAt": "2026-11-10T06:21:09.596Z",
+  "generatedAt": "2026-11-10T06:58:45.060Z",
   "generator": "backend/scripts/swap-vectors.js",
-  "generatorCommit": "38ded84adeb16a18dc081da5fad2895036c78c6c",
+  "generatorCommit": "8e8e42270394f195a5bd75a90dc1cf78c31a9cdd",
+  "codeHashes": {
+   "scripts/swap-vectors.js": "3a352fdafb000310a2633742eade44f82947ac645ce0c157bd4482a83f80ad48",
+   "reference/v4/pool-swap.js": "243a03a5b6306015f3cd649ee0a013f5a8dbda8bfee29cebb3daa7c24462644c",
+   "reference/v4/router.js": "8bf867c8aa7305fa7e78445ff3e0bf2717f342e457e489f84a17141dbede157c",
+   "reference/v4/sqrtpricemath.js": "3d1ea37d74a2322a405a3e5536cd40dd07b3ef2bc2bb5b2d3a34450c0c8940c8",
+   "reference/v4/swapmath.js": "6fc0b784f70e59b84cfea27de741555e90a4766be32f824424884a96de35dc7d",
+   "reference/v4/tickmath.js": "18d6c8a18efa0e9792091a09831812f1d6eec32fa0461fa0e3da1f8950c63b1e"
+  },
+  "generatorCommitDirty": false,
   "rpc": "https://rpc.elysium.kinetiq.xyz",
   "poolId": "0xc96bfd21d36f8e7252f0d80fcb5f3bcacdf47c8b927b20711104713ebeb383ac",
   "poolManager": "0xe2e105d3f7209a9da11f83ccf3e7398a753823f1",
   "blockRange": {
    "from": 256083,
-   "to": 3805910,
-   "span": 3549827
+   "to": 3824334,
+   "span": 3568251
   },
-  "swapsSeen": 44528,
-  "mlSeen": 6972,
-  "candidates": 41564,
+  "swapsSeen": 44547,
+  "mlSeen": 6984,
+  "candidates": 41575,
   "vectors": 3000,
   "exactInVectors": 2997,
   "exactOutVectors": 3,
   "limitTerminatedVectors": 0,
-  "mismatchCount": 0,
+  "excludedCount": 0,
   "byModeSource": {
-   "transactionCalldata": 17,
-   "chainObservableHypothesisTest": 2983
+   "transactionCalldata": 19,
+   "chainObservableHypothesisTest": 2981
+  },
+  "validationCounts": {
+   "calldataDecoded": 19,
+   "exclusiveHypothesis": 2981,
+   "feePaidFromChain": 43,
+   "feePaidFromReference": 2957,
+   "crossTick": 123,
+   "multiStep": 123
   },
   "excluded": {
    "calldataUnknownRouter": 0,
@@ -34,35 +51,35 @@
    "calldataLimitUnconfirmed": 0,
    "multiSwapInTx": 1082,
    "productionIndependent": 0,
-   "liquidityChangedInBetween": 2964,
+   "liquidityChangedInBetween": 2972,
    "nonTargetFee": 0,
    "directionInconsistent": 0,
    "sameBlockSwaps": 5917,
    "calldataFailures": {
-    "unknown-router-selector": 1450,
-    "multi-hop-path": 85,
-    "amountMismatch": 54,
-    "empty-calldata": 38,
-    "swap-actions": 13
+    "unknown-router-selector": 1419,
+    "multi-hop-path": 97,
+    "amountMismatch": 56,
+    "empty-calldata": 42,
+    "swap-actions": 11
    },
-   "txFetchFailed": 788,
-   "calldataSampled": 2445,
-   "calldataDecoded": 17
+   "txFetchFailed": 802,
+   "calldataSampled": 2446,
+   "calldataDecoded": 19
   },
   "feePaidOnchainCheck": {
-   "checked": 59,
-   "exact": 59,
+   "checked": 43,
+   "exact": 43,
    "failed": 0,
    "failedExamples": []
   },
   "coverage": {
-   "zeroForOne": 1668,
-   "oneForZero": 1332,
-   "crossTick": 124,
-   "multiStep": 124,
+   "zeroForOne": 1666,
+   "oneForZero": 1334,
+   "crossTick": 123,
+   "multiStep": 123,
    "tinyAmount": 6,
-   "feePaidFromChain": 59,
-   "feePaidFromReference": 2941,
+   "feePaidFromChain": 43,
+   "feePaidFromReference": 2957,
    "exactOutWithAmountInChecked": 3
   },
   "validation": {
@@ -251,9 +268,9 @@
     "amountIn": "66469662000000000",
     "amountOut": "9340516502984311734",
     "feePaid": "664696620000000",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "664696620000000",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "940778536673926377112581980630",
     "tickAfter": 49489,
     "liquidityAfter": "117546788126109418563"
@@ -665,9 +682,9 @@
     "amountIn": "283010560349754448792",
     "amountOut": "2026275071870109846",
     "feePaid": "2830105603497544488",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "2830105603497544488",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "972297548582948482784852908003",
     "tickAfter": 50149,
     "liquidityAfter": "278836134255207920036"
@@ -803,9 +820,9 @@
     "amountIn": "42584229819224697218",
     "amountOut": "312985376178932016",
     "feePaid": "425842298192246973",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "425842298192246973",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "925525485880188781353595042454",
     "tickAfter": 49163,
     "liquidityAfter": "278836134255207920036"
@@ -1723,9 +1740,9 @@
     "amountIn": "17057563000000000",
     "amountOut": "2669902614094673482",
     "feePaid": "170575630000000",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "170575630000000",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "995950706234399870000862316992",
     "tickAfter": 50629,
     "liquidityAfter": "406738297666950904059"
@@ -1861,9 +1878,9 @@
     "amountIn": "73468408612551894444",
     "amountOut": "477969798659297356",
     "feePaid": "734684086125518945",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "734684086125518945",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "984453129320305994046931071166",
     "tickAfter": 50397,
     "liquidityAfter": "406738297666950904059"
@@ -3517,9 +3534,9 @@
     "amountIn": "190760585832345600",
     "amountOut": "28359908427767313975",
     "feePaid": "1907605858323456",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "1907605858323456",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "968217553162642274490940464394",
     "tickAfter": 50065,
     "liquidityAfter": "419787348041841528260"
@@ -4437,9 +4454,9 @@
     "amountIn": "76250703867120840645",
     "amountOut": "495996873290805369",
     "feePaid": "762507038671208407",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "762507038671208407",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "984565996362229047896114037479",
     "tickAfter": 50399,
     "liquidityAfter": "419787348041841528260"
@@ -6553,9 +6570,9 @@
     "amountIn": "475869357407891356",
     "amountOut": "87566620338889750192",
     "feePaid": "4758693574078914",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "4758693574078914",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1076465587671115331562492225203",
     "tickAfter": 52184,
     "liquidityAfter": "937772419286663552631"
@@ -11025,9 +11042,9 @@
     "amountIn": "4950000000000000000",
     "amountOut": "763393603800420131740",
     "feePaid": "49500000000000000",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "49500000000000000",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "987107500809365652124144083841",
     "tickAfter": 50451,
     "liquidityAfter": "17266845946941091282228"
@@ -11834,9 +11851,9 @@
     "amountIn": "990000000000000000",
     "amountOut": "165818283261228898694",
     "feePaid": "9900000000000000",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "9900000000000000",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "1030335777989072705980678227260",
     "tickAfter": 51308,
     "liquidityAfter": "33835257605090203957073"
@@ -12089,9 +12106,9 @@
     "amountIn": "69771623985032300",
     "amountOut": "11942853868261521004",
     "feePaid": "697716239850323",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "697716239850323",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1041767490770742079714322086446",
     "tickAfter": 51529,
     "liquidityAfter": "33835257605090203957073"
@@ -14086,9 +14103,9 @@
     "amountIn": "2019695066000000000",
     "amountOut": "369367514632565547427",
     "feePaid": "20196950660000000",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "20196950660000000",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1076400824719406431178723292532",
     "tickAfter": 52183,
     "liquidityAfter": "33835332626200427491171"
@@ -14132,9 +14149,9 @@
     "amountIn": "74625000000000000",
     "amountOut": "13631245386236294864",
     "feePaid": "746250000000000",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "746250000000000",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "1076170303807559926673476897295",
     "tickAfter": 52179,
     "liquidityAfter": "33124802814445018684429"
@@ -16266,9 +16283,9 @@
     "amountIn": "6786089904269270775",
     "amountOut": "1111557777095591211766",
     "feePaid": "67860899042692708",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "67860899042692708",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1017234225083749225108501143360",
     "tickAfter": 51052,
     "liquidityAfter": "23537424269734574699936"
@@ -16666,61 +16683,6 @@
    }
   },
   {
-   "blockNumber": 760536,
-   "txHash": "0x8d9ecb62ddfcc66544ea8c924ef6fa980461c1fd2e0594fdbbb21570247b94d0",
-   "zeroForOne": false,
-   "feePips": 10000,
-   "mode": "exactIn",
-   "sqrtPriceLimitX96": "1461446703485210103287273052203988822378723970341",
-   "amountIn": "8502039304879676967",
-   "amountOut": "50927752303149702",
-   "sqrtPriceX96": "1018533790584241787898126752720",
-   "tick": 51078,
-   "liquidity": "23541653859177904137511",
-   "ticks": [
-    [
-     50800,
-     "16568411658149112674845"
-    ],
-    [
-     51200,
-     "0"
-    ]
-   ],
-   "source": {
-    "modeSource": "transaction-calldata",
-    "decodedFromCalldata": true,
-    "router": "universal-router",
-    "action": "SWAP_EXACT_IN_SINGLE",
-    "layout": "single/skip1word",
-    "amountSpecified": "8502039304879676967",
-    "sentinelLimit": "1461446703485210103287273052203988822378723970341",
-    "limitConfirmedBy": "chain-match-sentinel",
-    "limitInsensitive": false,
-    "txHash": "0x8d9ecb62ddfcc66544ea8c924ef6fa980461c1fd2e0594fdbbb21570247b94d0",
-    "blockNumber": 760536,
-    "zeroForOne": false,
-    "altLimitChecked": "1018561525525220034117592409435"
-   },
-   "expected": {
-    "amountIn": "8502039304879676967",
-    "amountOut": "50927752303149702",
-    "feePaid": "85020393048796770",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
-    "sqrtPriceAfter": "1018562117606048379904295999088",
-    "tickAfter": 51078,
-    "liquidityAfter": "23541653859177904137511"
-   },
-   "meta": {
-    "ticksCrossed": 0,
-    "steps": 1,
-    "partial": false,
-    "limitReached": false
-   }
-  },
-  {
    "blockNumber": 761494,
    "txHash": "0xbf085f7fbf7a4de03e4fec9237faedc1134fdcd143995f906621a1b4b6ac6a8f",
    "zeroForOne": false,
@@ -17011,9 +16973,9 @@
     "amountIn": "131058451241551381",
     "amountOut": "22587356799294330556",
     "feePaid": "1310584512415514",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "1310584512415514",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "1045313076561116385922002868407",
     "tickAfter": 51597,
     "liquidityAfter": "23537424269734574699936"
@@ -17261,9 +17223,9 @@
     "amountIn": "173050110564492439325",
     "amountOut": "987801925609441863",
     "feePaid": "1730501105644924394",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "1730501105644924394",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1043681700885681966995042522420",
     "tickAfter": 51566,
     "liquidityAfter": "23563530421425632197184"
@@ -18610,9 +18572,9 @@
     "amountIn": "10010377759690502870",
     "amountOut": "62264865271667857",
     "feePaid": "100103777596905029",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "100103777596905029",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "999593883493593408051580017008",
     "tickAfter": 50702,
     "liquidityAfter": "7513713679963108605732"
@@ -20238,9 +20200,9 @@
     "amountIn": "500000000000000000",
     "amountOut": "86579777734770483411",
     "feePaid": "5000000000000000",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "5000000000000000",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1047709448720935404050454149433",
     "tickAfter": 51643,
     "liquidityAfter": "32048175563895248373407"
@@ -21261,9 +21223,9 @@
     "amountIn": "335273988069717844",
     "amountOut": "1940309162203321",
     "feePaid": "3352739880697179",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "3352739880697179",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1036243491528399651385365604775",
     "tickAfter": 51423,
     "liquidityAfter": "32072872318815855848395"
@@ -21639,9 +21601,9 @@
     "amountIn": "1387186163411489269",
     "amountOut": "245261364596176352383",
     "feePaid": "13871861634114893",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "13871861634114893",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "1058485532565559466929631198857",
     "tickAfter": 51847,
     "liquidityAfter": "32072765539374380849227"
@@ -22899,9 +22861,9 @@
     "amountIn": "990000000000000000",
     "amountOut": "171203817167964134071",
     "feePaid": "9900000000000000",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "9900000000000000",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1046916231389818879000452489640",
     "tickAfter": 51628,
     "liquidityAfter": "31542040923816247602346"
@@ -24159,9 +24121,9 @@
     "amountIn": "606390533766529072",
     "amountOut": "101013822984762395556",
     "feePaid": "6063905337665291",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "6063905337665291",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1027456056659963982070944262872",
     "tickAfter": 51252,
     "liquidityAfter": "14974064469297741533965"
@@ -25167,9 +25129,9 @@
     "amountIn": "594000000000000000",
     "amountOut": "108508696872094989685",
     "feePaid": "5940000000000000",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "5940000000000000",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1076054306652142052030427017007",
     "tickAfter": 52177,
     "liquidityAfter": "25948344335491525169598"
@@ -31527,9 +31489,9 @@
     "amountIn": "4507292528598461939",
     "amountOut": "27537944443440499",
     "feePaid": "45072925285984620",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "45072925285984620",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1008535017609726069034039062187",
     "tickAfter": 50880,
     "liquidityAfter": "45090916593224696886821"
@@ -32976,9 +32938,9 @@
     "amountIn": "990000000000000000",
     "amountOut": "166995774325911737183",
     "feePaid": "9900000000000000",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "9900000000000000",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "1034038750065284838156154754989",
     "tickAfter": 51380,
     "liquidityAfter": "46058450930100697628599"
@@ -34110,9 +34072,9 @@
     "amountIn": "2970000000000000000",
     "amountOut": "487673094437774146490",
     "feePaid": "29700000000000000",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "29700000000000000",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1019928275910863740687621960350",
     "tickAfter": 51105,
     "liquidityAfter": "46058450930100697628599"
@@ -34173,9 +34135,9 @@
     "amountIn": "92353221231124438238",
     "amountOut": "546876285701178336",
     "feePaid": "923532212311244383",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "923532212311244383",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "1024500080485917771662546801769",
     "tickAfter": 51195,
     "liquidityAfter": "46058450930100697628599"
@@ -35496,9 +35458,9 @@
     "amountIn": "4950000000000000000",
     "amountOut": "814510856693064137638",
     "feePaid": "49500000000000000",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "49500000000000000",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "1020731008769649446553554456436",
     "tickAfter": 51121,
     "liquidityAfter": "46267164293559977160709"
@@ -35685,9 +35647,9 @@
     "amountIn": "36241304628462596",
     "amountOut": "5783117612210028990",
     "feePaid": "362413046284626",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "362413046284626",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "1005863274880921040850402663233",
     "tickAfter": 50827,
     "liquidityAfter": "46322633829369697658296"
@@ -36819,9 +36781,9 @@
     "amountIn": "495000000000000000",
     "amountOut": "74612870920936973860",
     "feePaid": "4950000000000000",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "4950000000000000",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "977515462826016814345903311411",
     "tickAfter": 50256,
     "liquidityAfter": "30803675428354865278577"
@@ -37008,9 +36970,9 @@
     "amountIn": "100672049455586345231",
     "amountOut": "635582781135813932",
     "feePaid": "1006720494555863453",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "1006720494555863453",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "992251309164035627766220739128",
     "tickAfter": 50555,
     "liquidityAfter": "30803675428354865278577"
@@ -38268,9 +38230,9 @@
     "amountIn": "206584619116124999926",
     "amountOut": "1300673192503852016",
     "feePaid": "2065846191161250000",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "2065846191161250000",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "993749003836112786945008769781",
     "tickAfter": 50585,
     "liquidityAfter": "30896843208968465146820"
@@ -42635,9 +42597,9 @@
     "amountIn": "3465000000000000000",
     "amountOut": "520195562210631122050",
     "feePaid": "34650000000000000",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "34650000000000000",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "975095996354924003036361093707",
     "tickAfter": 50206,
     "liquidityAfter": "37240517238515050770279"
@@ -46809,9 +46771,9 @@
     "amountIn": "163866733456837697788",
     "amountOut": "1023989425365886255",
     "feePaid": "1638667334568376978",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "1638667334568376978",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "997402187667491380976613558010",
     "tickAfter": 50658,
     "liquidityAfter": "37082863702827708145582"
@@ -46872,9 +46834,9 @@
     "amountIn": "6883680582818848142",
     "amountOut": "42849221921642026",
     "feePaid": "68836805828188482",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "68836805828188482",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "999169641874693126255679538990",
     "tickAfter": 50694,
     "liquidityAfter": "37082863702827708145582"
@@ -48266,9 +48228,9 @@
     "amountIn": "4950000000000000000",
     "amountOut": "766145917146693132972",
     "feePaid": "49500000000000000",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "49500000000000000",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "989873415884113223597488846363",
     "tickAfter": 50507,
     "liquidityAfter": "39661964492849500480523"
@@ -49845,9 +49807,9 @@
     "amountIn": "1469160000000000000",
     "amountOut": "225971876917340633421",
     "feePaid": "14691600000000000",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "14691600000000000",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "987316092928264987302535086083",
     "tickAfter": 50455,
     "liquidityAfter": "39999441262527084148450"
@@ -51361,9 +51323,9 @@
     "amountIn": "1980000000000000000",
     "amountOut": "300992616122076858348",
     "feePaid": "19800000000000000",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "19800000000000000",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "981467651605403564847484995820",
     "tickAfter": 50336,
     "liquidityAfter": "40164737341362374135216"
@@ -51613,9 +51575,9 @@
     "amountIn": "990000000000000",
     "amountOut": "152059515751595350",
     "feePaid": "9900000000000",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "9900000000000",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "986849953227285699645855587194",
     "tickAfter": 50446,
     "liquidityAfter": "40271949721306523509772"
@@ -53192,9 +53154,9 @@
     "amountIn": "4950000000000000000",
     "amountOut": "758623460912664570099",
     "feePaid": "49500000000000000",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "49500000000000000",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "985017070955585193044292757435",
     "tickAfter": 50409,
     "liquidityAfter": "40271949721306523509772"
@@ -55090,9 +55052,9 @@
     "amountIn": "495000000000000000",
     "amountOut": "78142857408004462638",
     "feePaid": "4950000000000000",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "4950000000000000",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "1000387807560724922031164337548",
     "tickAfter": 50718,
     "liquidityAfter": "37702594771730117426260"
@@ -56606,9 +56568,9 @@
     "amountIn": "495000000000000000",
     "amountOut": "76426238735885388463",
     "feePaid": "4950000000000000",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "4950000000000000",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "989370149870104549413870585857",
     "tickAfter": 50497,
     "liquidityAfter": "60883554101514730011303"
@@ -57551,9 +57513,9 @@
     "amountIn": "2970000000000000000",
     "amountOut": "452679018871853111621",
     "feePaid": "29700000000000000",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "29700000000000000",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "982772326752331338115503155368",
     "tickAfter": 50363,
     "liquidityAfter": "62861666762531983624039"
@@ -58878,9 +58840,9 @@
     "amountIn": "77092029216535597712",
     "amountOut": "506303206877759666",
     "feePaid": "770920292165355978",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "770920292165355978",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "972834173047519286149524449401",
     "tickAfter": 50160,
     "liquidityAfter": "31958550652060666071938"
@@ -59957,9 +59919,9 @@
     "amountIn": "230796830812070576094",
     "amountOut": "1505815280666819923",
     "feePaid": "2307968308120705761",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "2307968308120705761",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "976078936096881979948625418985",
     "tickAfter": 50226,
     "liquidityAfter": "68630107693152971320866"
@@ -61217,9 +61179,9 @@
     "amountIn": "92966393154557120188",
     "amountOut": "603212033238155837",
     "feePaid": "929663931545571202",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "929663931545571202",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "978693037460781950748816473407",
     "tickAfter": 50280,
     "liquidityAfter": "75871850300755772423066"
@@ -62930,9 +62892,9 @@
     "amountIn": "3514500000000000000",
     "amountOut": "489290867567474894480",
     "feePaid": "35145000000000000",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "35145000000000000",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "938534499099999661742008339928",
     "tickAfter": 49442,
     "liquidityAfter": "19329150695845164395594"
@@ -65584,9 +65546,9 @@
     "amountIn": "594000000000000000",
     "amountOut": "85183145968701652043",
     "feePaid": "5940000000000000",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "5940000000000000",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "953484638400829000254457194122",
     "tickAfter": 49758,
     "liquidityAfter": "48176623763101419510904"
@@ -65836,9 +65798,9 @@
     "amountIn": "597000000000000000",
     "amountOut": "86299267120101715194",
     "feePaid": "5970000000000000",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "5970000000000000",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "957295865766670030516870396164",
     "tickAfter": 49838,
     "liquidityAfter": "48175242827851143905400"
@@ -66844,9 +66806,9 @@
     "amountIn": "2970000000000000000",
     "amountOut": "429832304508859820805",
     "feePaid": "29700000000000000",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "29700000000000000",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "957585832154003542479416185449",
     "tickAfter": 49844,
     "liquidityAfter": "49620028405880591265125"
@@ -67730,9 +67692,9 @@
     "amountIn": "146252700000000030",
     "amountOut": "20887723036604556120",
     "feePaid": "1462527000000001",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "1462527000000001",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "951586154846221252000298313321",
     "tickAfter": 49718,
     "liquidityAfter": "50514360920404934958482"
@@ -70439,9 +70401,9 @@
     "amountIn": "4356000000000000000",
     "amountOut": "616396945378859294544",
     "feePaid": "43560000000000000",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "43560000000000000",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "946837276682110741799389410286",
     "tickAfter": 49618,
     "liquidityAfter": "64735885340264565497065"
@@ -71699,9 +71661,9 @@
     "amountIn": "112085646088934576193",
     "amountOut": "745637637011023479",
     "feePaid": "1120856460889345762",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "1120856460889345762",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "966583806190721892783770179941",
     "tickAfter": 50031,
     "liquidityAfter": "63216947460196475329543"
@@ -74045,69 +74007,6 @@
    }
   },
   {
-   "blockNumber": 2422920,
-   "txHash": "0xbdf20bbc067a190ed26d8d9cdb85fc19fcc2d979961dfb1ee1617b7bf39f4d48",
-   "zeroForOne": true,
-   "feePips": 10000,
-   "mode": "exactIn",
-   "sqrtPriceLimitX96": "4295128740",
-   "amountIn": "3345394491759605115",
-   "amountOut": "504364371340452824438",
-   "sqrtPriceX96": "977970877547421407639788256147",
-   "tick": 50265,
-   "liquidity": "76903233440198355385142",
-   "ticks": [
-    [
-     50400,
-     "-24895228270727352320"
-    ],
-    [
-     50200,
-     "26452079809381176320"
-    ],
-    [
-     50000,
-     "-2717022525845785272623"
-    ],
-    [
-     50600,
-     "-4945135662261922610120"
-    ]
-   ],
-   "source": {
-    "modeSource": "transaction-calldata",
-    "decodedFromCalldata": true,
-    "router": "universal-router",
-    "action": "SWAP_EXACT_IN_SINGLE",
-    "layout": "single/skip1word",
-    "amountSpecified": "3345394491759605115",
-    "sentinelLimit": "4295128740",
-    "limitConfirmedBy": "chain-match-sentinel",
-    "limitInsensitive": false,
-    "txHash": "0xbdf20bbc067a190ed26d8d9cdb85fc19fcc2d979961dfb1ee1617b7bf39f4d48",
-    "blockNumber": 2422920,
-    "zeroForOne": true,
-    "altLimitChecked": "977466312472572233173168426864"
-   },
-   "expected": {
-    "amountIn": "3345394491759605115",
-    "amountOut": "504364371340452824438",
-    "feePaid": "33453944917596052",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
-    "sqrtPriceAfter": "977451265294575890680565518598",
-    "tickAfter": 50254,
-    "liquidityAfter": "76903233440198355385142"
-   },
-   "meta": {
-    "ticksCrossed": 0,
-    "steps": 1,
-    "partial": false,
-    "limitReached": false
-   }
-  },
-  {
    "blockNumber": 2422945,
    "txHash": "0x350b2d852e5451eb52f8e2b0cd1970d9e9a0fe429ea2c87925d2e952dc66f8d7",
    "zeroForOne": false,
@@ -76113,9 +76012,9 @@
     "amountIn": "29779136184490089232",
     "amountOut": "198858291500314454",
     "feePaid": "297791361844900893",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "297791361844900893",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "964689790934595183634867696714",
     "tickAfter": 49991,
     "liquidityAfter": "83383843309707966478203"
@@ -77247,9 +77146,9 @@
     "amountIn": "99000000000000000",
     "amountOut": "15096232782104353669",
     "feePaid": "990000000000000",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "990000000000000",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "983275920347802073287194766218",
     "tickAfter": 50373,
     "liquidityAfter": "80593173071100226508809"
@@ -78570,9 +78469,9 @@
     "amountIn": "2852692703612263699",
     "amountOut": "18327786083782449",
     "feePaid": "28526927036122637",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "28526927036122637",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "983490728013579957916508766883",
     "tickAfter": 50378,
     "liquidityAfter": "82774682277706111416586"
@@ -81724,9 +81623,9 @@
     "amountIn": "1980000000000000000",
     "amountOut": "298199135480985637227",
     "feePaid": "19800000000000000",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "19800000000000000",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "977064386697796855935369581304",
     "tickAfter": 50246,
     "liquidityAfter": "88387253222430850851909"
@@ -82921,9 +82820,9 @@
     "amountIn": "53051996637761792429",
     "amountOut": "329511555839149940",
     "feePaid": "530519966377617925",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "530519966377617925",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "1000282775422000739262629459998",
     "tickAfter": 50716,
     "liquidityAfter": "89729258850364547016127"
@@ -84307,9 +84206,9 @@
     "amountIn": "990000000000000000",
     "amountOut": "156872234261735909685",
     "feePaid": "9900000000000000",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "9900000000000000",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1002276959947554426106552220413",
     "tickAfter": 50756,
     "liquidityAfter": "90709497631491651392905"
@@ -89166,9 +89065,9 @@
     "amountIn": "14109764447842063435",
     "amountOut": "84041372858632686",
     "feePaid": "141097644478420635",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "141097644478420635",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1021438687005849127090047824462",
     "tickAfter": 51135,
     "liquidityAfter": "130057865332662066133302"
@@ -90678,9 +90577,9 @@
     "amountIn": "99287060158458966111",
     "amountOut": "573465721500638759",
     "feePaid": "992870601584589662",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "992870601584589662",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1037310956855666596669976969033",
     "tickAfter": 51443,
     "liquidityAfter": "84956173204416151860577"
@@ -92891,9 +92790,9 @@
     "amountIn": "97101949529633237745",
     "amountOut": "534631859714884351",
     "feePaid": "971019495296332378",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "971019495296332378",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "1062414456635561922121151112018",
     "tickAfter": 51921,
     "liquidityAfter": "152117567828088872592351"
@@ -93962,9 +93861,9 @@
     "amountIn": "1748340000000000000",
     "amountOut": "308557484665433357036",
     "feePaid": "17483400000000000",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "17483400000000000",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "1057774657310434333710588277750",
     "tickAfter": 51834,
     "liquidityAfter": "209753640121359666075590"
@@ -97935,9 +97834,9 @@
     "amountIn": "915315354075629854913",
     "amountOut": "5050100890296949284",
     "feePaid": "9153153540756298550",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "9153153540756298550",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1061421566525983114001584191137",
     "tickAfter": 51903,
     "liquidityAfter": "265249201877388066661607"
@@ -99195,9 +99094,9 @@
     "amountIn": "2500000000000000000",
     "amountOut": "449098964629684702752",
     "feePaid": "25000000000000000",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "25000000000000000",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "1067184752915269804683178406579",
     "tickAfter": 52011,
     "liquidityAfter": "309419739776959685849226"
@@ -100339,6 +100238,69 @@
     "sqrtPriceAfter": "1065301929090255491528215002751",
     "tickAfter": 51976,
     "liquidityAfter": "359251851103529003127682"
+   },
+   "meta": {
+    "ticksCrossed": 0,
+    "steps": 1,
+    "partial": false,
+    "limitReached": false
+   }
+  },
+  {
+   "blockNumber": 3056972,
+   "txHash": "0xa68bac770d8eddf1f3ea22bb54aa5aafc27a88447a84112dba3dc3701a901e54",
+   "zeroForOne": true,
+   "feePips": 10000,
+   "mode": "exactIn",
+   "sqrtPriceLimitX96": "4295128740",
+   "amountIn": "744000000000000000",
+   "amountOut": "133275262769723995318",
+   "sqrtPriceX96": "1065752305261846465548640693987",
+   "tick": 51984,
+   "liquidity": "359276465599731726207931",
+   "ticks": [
+    [
+     51600,
+     "13383941577530139093111"
+    ],
+    [
+     52000,
+     "-57467623844471248013329"
+    ],
+    [
+     52200,
+     "-35423670440433141894489"
+    ],
+    [
+     51800,
+     "133308041601446454486868"
+    ]
+   ],
+   "source": {
+    "modeSource": "transaction-calldata",
+    "decodedFromCalldata": true,
+    "router": "universal-router",
+    "action": "SWAP_EXACT_IN_SINGLE",
+    "layout": "single/skip1word",
+    "amountSpecified": "744000000000000000",
+    "sentinelLimit": "4295128740",
+    "limitConfirmedBy": "chain-match-sentinel",
+    "limitInsensitive": false,
+    "txHash": "0xa68bac770d8eddf1f3ea22bb54aa5aafc27a88447a84112dba3dc3701a901e54",
+    "blockNumber": 3056972,
+    "zeroForOne": true,
+    "altLimitChecked": "1065723065089587074346170868212"
+   },
+   "expected": {
+    "amountIn": "744000000000000000",
+    "amountOut": "133275262769723995318",
+    "feePaid": "7440000000000000",
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
+    "sqrtPriceAfter": "1065722915209369121035643676862",
+    "tickAfter": 51984,
+    "liquidityAfter": "359276465599731726207931"
    },
    "meta": {
     "ticksCrossed": 0,
@@ -104302,9 +104264,9 @@
     "amountIn": "387911729684521403726",
     "amountOut": "2174019082188004485",
     "feePaid": "3879117296845214038",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "3879117296845214038",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "1053068208278499448037475227025",
     "tickAfter": 51745,
     "liquidityAfter": "255672932979499830203917"
@@ -105136,6 +105098,69 @@
    }
   },
   {
+   "blockNumber": 3108996,
+   "txHash": "0xc21cd6277fa7ec5be982951ee1265b9094a3f56c008693d0e22dad9a3f3f84b9",
+   "zeroForOne": false,
+   "feePips": 10000,
+   "mode": "exactIn",
+   "sqrtPriceLimitX96": "1461446703485210103287273052203988822378723970341",
+   "amountIn": "1880780000000000000000",
+   "amountOut": "10535594489083278398",
+   "sqrtPriceX96": "1052976504823892587081902366160",
+   "tick": 51743,
+   "liquidity": "257796496374266213968571",
+   "ticks": [
+    [
+     51600,
+     "19011476344632578638105"
+    ],
+    [
+     51400,
+     "26422442214099767059399"
+    ],
+    [
+     52000,
+     "12629134205206474449458"
+    ],
+    [
+     51800,
+     "89300472616430599831853"
+    ]
+   ],
+   "source": {
+    "modeSource": "transaction-calldata",
+    "decodedFromCalldata": true,
+    "router": "universal-router",
+    "action": "SWAP_EXACT_IN_SINGLE",
+    "layout": "single/skip1word",
+    "amountSpecified": "1880780000000000000000",
+    "sentinelLimit": "1461446703485210103287273052203988822378723970341",
+    "limitConfirmedBy": "chain-match-sentinel",
+    "limitInsensitive": false,
+    "txHash": "0xc21cd6277fa7ec5be982951ee1265b9094a3f56c008693d0e22dad9a3f3f84b9",
+    "blockNumber": 3108996,
+    "zeroForOne": false,
+    "altLimitChecked": "1053545878869311896898839939447"
+   },
+   "expected": {
+    "amountIn": "1880780000000000000000",
+    "amountOut": "10535594489083278398",
+    "feePaid": "18807800000000000000",
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
+    "sqrtPriceAfter": "1053548741600316706547997665274",
+    "tickAfter": 51754,
+    "liquidityAfter": "257796496374266213968571"
+   },
+   "meta": {
+    "ticksCrossed": 0,
+    "steps": 1,
+    "partial": false,
+    "limitReached": false
+   }
+  },
+  {
    "blockNumber": 3110424,
    "txHash": "0x0ff4e76c5b36784d428e23369092f7ed91943637aa4998f5468d8a6fcecb9995",
    "zeroForOne": false,
@@ -105190,6 +105215,69 @@
     "sqrtPriceAfter": "1053240529161158953940435688397",
     "tickAfter": 51748,
     "liquidityAfter": "273083716476502909659835"
+   },
+   "meta": {
+    "ticksCrossed": 0,
+    "steps": 1,
+    "partial": false,
+    "limitReached": false
+   }
+  },
+  {
+   "blockNumber": 3111455,
+   "txHash": "0x14534230a77c2ad9a2cfc2d3ba3d66a155441aa857de206724a887088f19acb6",
+   "zeroForOne": true,
+   "feePips": 10000,
+   "mode": "exactIn",
+   "sqrtPriceLimitX96": "4295128740",
+   "amountIn": "10000000000000000000",
+   "amountOut": "1748964525473853697079",
+   "sqrtPriceX96": "1053311509840445301974757317807",
+   "tick": 51749,
+   "liquidity": "273841186493621207769925",
+   "ticks": [
+    [
+     51600,
+     "34298696446869274329369"
+    ],
+    [
+     51400,
+     "26968841871741923872129"
+    ],
+    [
+     52000,
+     "12629134205206474449458"
+    ],
+    [
+     51800,
+     "74013252514193904140589"
+    ]
+   ],
+   "source": {
+    "modeSource": "transaction-calldata",
+    "decodedFromCalldata": true,
+    "router": "universal-router",
+    "action": "SWAP_EXACT_IN_SINGLE",
+    "layout": "single/skip1word",
+    "amountSpecified": "10000000000000000000",
+    "sentinelLimit": "4295128740",
+    "limitConfirmedBy": "chain-match-sentinel",
+    "limitInsensitive": false,
+    "txHash": "0x14534230a77c2ad9a2cfc2d3ba3d66a155441aa857de206724a887088f19acb6",
+    "blockNumber": 3111455,
+    "zeroForOne": true,
+    "altLimitChecked": "1052808026740649217515871224791"
+   },
+   "expected": {
+    "amountIn": "10000000000000000000",
+    "amountOut": "1748964525473853697079",
+    "feePaid": "100000000000000000",
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
+    "sqrtPriceAfter": "1052805496674821096488439299007",
+    "tickAfter": 51740,
+    "liquidityAfter": "273841186493621207769925"
    },
    "meta": {
     "ticksCrossed": 0,
@@ -107582,9 +107670,9 @@
     "amountIn": "1500000000000000000",
     "amountOut": "265836336671672732119",
     "feePaid": "15000000000000000",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "15000000000000000",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "1060015550727580448781924817608",
     "tickAfter": 51876,
     "liquidityAfter": "382074057005989804780770"
@@ -107960,9 +108048,9 @@
     "amountIn": "171059438392425878280",
     "amountOut": "943421820471674436",
     "feePaid": "1710594383924258783",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "1710594383924258783",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1061511616930343742924577185479",
     "tickAfter": 51904,
     "liquidityAfter": "391666685154582176624552"
@@ -109598,9 +109686,9 @@
     "amountIn": "155550618269364708",
     "amountOut": "27438566119357256358",
     "feePaid": "1555506182693648",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "1555506182693648",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1057561819740857946910699696524",
     "tickAfter": 51830,
     "liquidityAfter": "421763138721152613451145"
@@ -114323,9 +114411,9 @@
     "amountIn": "30509151110429708",
     "amountOut": "5433954242193510011",
     "feePaid": "305091511104298",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "305091511104298",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1062685328338033524953114570435",
     "tickAfter": 51927,
     "liquidityAfter": "385302955126464572302394"
@@ -114386,9 +114474,9 @@
     "amountIn": "3973739220000000000",
     "amountOut": "707121684057311751050",
     "feePaid": "39737392200000000",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "39737392200000000",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "1062134848059353146479036649142",
     "tickAfter": 51916,
     "liquidityAfter": "385302955126464572302394"
@@ -114449,9 +114537,9 @@
     "amountIn": "75700321995484261830",
     "amountOut": "417089403599244353",
     "feePaid": "757003219954842619",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "757003219954842619",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1062024699115514103241777274025",
     "tickAfter": 51914,
     "liquidityAfter": "385302955126464572302394"
@@ -116028,9 +116116,9 @@
     "amountIn": "1960855716986974025",
     "amountOut": "355657607276489073118",
     "feePaid": "19608557169869741",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "19608557169869741",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1072349338742868355124553333065",
     "tickAfter": 52108,
     "liquidityAfter": "301412409205364546792450"
@@ -117607,9 +117695,9 @@
     "amountIn": "89186363411224447",
     "amountOut": "16627808707089744416",
     "feePaid": "891863634112245",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "891863634112245",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1087249602813610934573664256310",
     "tickAfter": 52384,
     "liquidityAfter": "260347240864869336252004"
@@ -117927,69 +118015,6 @@
     "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1092173289827359460372803811220",
     "tickAfter": 52474,
-    "liquidityAfter": "217302424557163867346150"
-   },
-   "meta": {
-    "ticksCrossed": 0,
-    "steps": 1,
-    "partial": false,
-    "limitReached": false
-   }
-  },
-  {
-   "blockNumber": 3237944,
-   "txHash": "0x30555a27073bbd7fa3ff547fe85e804cc402a4d73b4a1e0c3a2b01ac8a671edf",
-   "zeroForOne": false,
-   "feePips": 10000,
-   "mode": "exactIn",
-   "sqrtPriceLimitX96": "1461446703485210103287273052203988822378723970341",
-   "amountIn": "248021261434576803870",
-   "amountOut": "1291942381929285477",
-   "sqrtPriceX96": "1092200236493397820982179623035",
-   "tick": 52474,
-   "liquidity": "217302424557163867346150",
-   "ticks": [
-    [
-     52600,
-     "-67910137497930137581611"
-    ],
-    [
-     52800,
-     "-5101506613697942966955"
-    ],
-    [
-     52200,
-     "-13648423993280679070489"
-    ],
-    [
-     52400,
-     "-35985797242570334205751"
-    ]
-   ],
-   "source": {
-    "modeSource": "transaction-calldata",
-    "decodedFromCalldata": true,
-    "router": "universal-router",
-    "action": "SWAP_EXACT_IN_SINGLE",
-    "layout": "single/skip1word",
-    "amountSpecified": "248021261434576803870",
-    "sentinelLimit": "1461446703485210103287273052203988822378723970341",
-    "limitConfirmedBy": "chain-match-sentinel",
-    "limitInsensitive": false,
-    "txHash": "0x30555a27073bbd7fa3ff547fe85e804cc402a4d73b4a1e0c3a2b01ac8a671edf",
-    "blockNumber": 3237944,
-    "zeroForOne": false,
-    "altLimitChecked": "1092287070588761315543525715074"
-   },
-   "expected": {
-    "amountIn": "248021261434576803870",
-    "amountOut": "1291942381929285477",
-    "feePaid": "2480212614345768039",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
-    "sqrtPriceAfter": "1092289760419140925815288933303",
-    "tickAfter": 52476,
     "liquidityAfter": "217302424557163867346150"
    },
    "meta": {
@@ -119119,9 +119144,9 @@
     "amountIn": "323167805188779263",
     "amountOut": "60999446692040676274",
     "feePaid": "3231678051887793",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "3231678051887793",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1093975155594198635713681445662",
     "tickAfter": 52507,
     "liquidityAfter": "279616308270365844787420"
@@ -120757,9 +120782,9 @@
     "amountIn": "1444771438959080016260",
     "amountOut": "7557011645218027612",
     "feePaid": "14447714389590800163",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "14447714389590800163",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "1090188848659007909996115553933",
     "tickAfter": 52438,
     "liquidityAfter": "282107152167017443947999"
@@ -122269,9 +122294,9 @@
     "amountIn": "149325000000000000",
     "amountOut": "29109881663814261169",
     "feePaid": "1493250000000000",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "1493250000000000",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1111764260456118164678753114622",
     "tickAfter": 52830,
     "liquidityAfter": "139206763999203446718552"
@@ -122332,9 +122357,9 @@
     "amountIn": "7493685846082545150",
     "amountOut": "37585206897594465",
     "feePaid": "74936858460825452",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "74936858460825452",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1113107515956787664776903211793",
     "tickAfter": 52854,
     "liquidityAfter": "172273192469570323956388"
@@ -123789,9 +123814,9 @@
     "amountIn": "549474717378032420316",
     "amountOut": "2724249340034093600",
     "feePaid": "5494747173780324204",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "5494747173780324204",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1119661295419051886978050184233",
     "tickAfter": 52971,
     "liquidityAfter": "214040415690434384084320"
@@ -130723,9 +130748,9 @@
     "amountIn": "14567850000000000",
     "amountOut": "3147169966211496469",
     "feePaid": "145678500000000",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "145678500000000",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "1170371547519151546255251482245",
     "tickAfter": 53857,
     "liquidityAfter": "77143442308528656662495"
@@ -131731,9 +131756,9 @@
     "amountIn": "2277227722772276930",
     "amountOut": "467785269670661118033",
     "feePaid": "22772277227722770",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "22772277227722770",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1141137405649882727076644851956",
     "tickAfter": 53351,
     "liquidityAfter": "159959129355278901450597"
@@ -132739,9 +132764,9 @@
     "amountIn": "2487500000000000000",
     "amountOut": "515683246622539436031",
     "feePaid": "24875000000000000",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "24875000000000000",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1146313619964489303407537351219",
     "tickAfter": 53442,
     "liquidityAfter": "112967054890430747505096"
@@ -134192,9 +134217,9 @@
     "amountIn": "495000000000000000",
     "amountOut": "105368140315921497522",
     "feePaid": "4950000000000000",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "4950000000000000",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1161711766375665457514419110460",
     "tickAfter": 53709,
     "liquidityAfter": "99663788127417133121842"
@@ -136145,9 +136170,9 @@
     "amountIn": "20000000000000000",
     "amountOut": "4370464977698863679",
     "feePaid": "200000000000000",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "200000000000000",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1177091861667286077319685221922",
     "tickAfter": 53972,
     "liquidityAfter": "140766861018584657666464"
@@ -139633,6 +139658,69 @@
    }
   },
   {
+   "blockNumber": 3321570,
+   "txHash": "0x1cd9cf9c288f922edc3c085693de872cb36aa96c205c194c3c3218863f4269e2",
+   "zeroForOne": false,
+   "feePips": 10000,
+   "mode": "exactIn",
+   "sqrtPriceLimitX96": "1461446703485210103287273052203988822378723970341",
+   "amountIn": "150379737218465732",
+   "amountOut": "726269195701306",
+   "sqrtPriceX96": "1134339405041754523838041420663",
+   "tick": 53232,
+   "liquidity": "210438888723317466837775",
+   "ticks": [
+    [
+     53000,
+     "-19330863851676156511820"
+    ],
+    [
+     53600,
+     "-2522337245486137049163"
+    ],
+    [
+     53200,
+     "42189103442297473651862"
+    ],
+    [
+     53400,
+     "-66732843300877462471361"
+    ]
+   ],
+   "source": {
+    "modeSource": "transaction-calldata",
+    "decodedFromCalldata": true,
+    "router": "universal-router",
+    "action": "SWAP_EXACT_IN_SINGLE",
+    "layout": "single/skip1word",
+    "amountSpecified": "150379737218465732",
+    "sentinelLimit": "1461446703485210103287273052203988822378723970341",
+    "limitConfirmedBy": "chain-match-sentinel",
+    "limitInsensitive": false,
+    "txHash": "0x1cd9cf9c288f922edc3c085693de872cb36aa96c205c194c3c3218863f4269e2",
+    "blockNumber": 3321570,
+    "zeroForOne": false,
+    "altLimitChecked": "1134339460914958800256116564675"
+   },
+   "expected": {
+    "amountIn": "150379737218465732",
+    "amountOut": "726269195701306",
+    "feePaid": "1503797372184658",
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "1503797372184658",
+    "feePaidOnchainExact": true,
+    "sqrtPriceAfter": "1134339461092075014330382287060",
+    "tickAfter": 53232,
+    "liquidityAfter": "210438888723317466837775"
+   },
+   "meta": {
+    "ticksCrossed": 0,
+    "steps": 1,
+    "partial": false,
+    "limitReached": false
+   }
+  },
+  {
    "blockNumber": 3321653,
    "txHash": "0xd32cd62ba3dbc0f179926a445eb1b5533f052f1f8733e87ff21176b7e447ab3a",
    "zeroForOne": false,
@@ -142439,19 +142527,19 @@
     ]
    ],
    "source": {
-    "modeSource": "transaction-calldata",
-    "decodedFromCalldata": true,
-    "router": "universal-router",
-    "action": "SWAP_EXACT_IN_SINGLE",
-    "layout": "single/skip1word",
+    "modeSource": "chain-observable-hypothesis-test",
+    "exclusive": true,
+    "decodedFromCalldata": false,
+    "hypothesis": {
+     "exactInMatches": true,
+     "exactOutMatches": false
+    },
     "amountSpecified": "6296787889009964032",
-    "sentinelLimit": "1461446703485210103287273052203988822378723970341",
-    "limitConfirmedBy": "chain-match-sentinel",
-    "limitInsensitive": false,
     "txHash": "0x425313894de334e1ff18a73c99b65a117ef8a2f07d71038bba2cca1596124fb7",
     "blockNumber": 3335935,
     "zeroForOne": false,
-    "altLimitChecked": "1131083452936121367183733398587"
+    "limitInsensitive": true,
+    "altLimitChecked": "1131083491314350642740480883220"
    },
    "expected": {
     "amountIn": "6296787889009964032",
@@ -145166,9 +145254,9 @@
     "amountIn": "129640206514800021",
     "amountOut": "26279008050390660666",
     "feePaid": "1296402065148001",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "1296402065148001",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1133690592741437824889430156164",
     "tickAfter": 53220,
     "liquidityAfter": "192614915066697535732482"
@@ -147182,9 +147270,9 @@
     "amountIn": "12510498198968741088",
     "amountOut": "57373329866110201",
     "feePaid": "125104981989687411",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "125104981989687411",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "1164074798637584747170470840597",
     "tickAfter": 53749,
     "liquidityAfter": "127826371960789199497412"
@@ -150844,9 +150932,9 @@
     "amountIn": "133134882171841978482",
     "amountOut": "616307933161823004",
     "feePaid": "1331348821718419785",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "1331348821718419785",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1158666568375567947290785056364",
     "tickAfter": 53656,
     "liquidityAfter": "137389093661076362931509"
@@ -152060,6 +152148,69 @@
    }
   },
   {
+   "blockNumber": 3515897,
+   "txHash": "0x32a7bd5296c7de674686da64b4daa87981ae9e1b0ecf1bb800ffee5b8e815e07",
+   "zeroForOne": false,
+   "feePips": 10000,
+   "mode": "exactIn",
+   "sqrtPriceLimitX96": "1461446703485210103287273052203988822378723970341",
+   "amountIn": "625762561992603206636",
+   "amountOut": "2649866086284852575",
+   "sqrtPriceX96": "1210804717897348269893699599124",
+   "tick": 54536,
+   "liquidity": "40750525318880297726454",
+   "ticks": [
+    [
+     54600,
+     "-3386535717608369761849"
+    ],
+    [
+     54400,
+     "-7919979093957909637275"
+    ],
+    [
+     54200,
+     "-38345861289253408764074"
+    ],
+    [
+     54800,
+     "-7468781387617209178304"
+    ]
+   ],
+   "source": {
+    "modeSource": "transaction-calldata",
+    "decodedFromCalldata": true,
+    "router": "universal-router",
+    "action": "SWAP_EXACT_IN_SINGLE",
+    "layout": "single/skip1word",
+    "amountSpecified": "625762561992603206636",
+    "sentinelLimit": "1461446703485210103287273052203988822378723970341",
+    "limitConfirmedBy": "chain-match-sentinel",
+    "limitInsensitive": false,
+    "txHash": "0x32a7bd5296c7de674686da64b4daa87981ae9e1b0ecf1bb800ffee5b8e815e07",
+    "blockNumber": 3515897,
+    "zeroForOne": false,
+    "altLimitChecked": "1211944624643156432690916037125"
+   },
+   "expected": {
+    "amountIn": "625762561992603206636",
+    "amountOut": "2649866086284852575",
+    "feePaid": "6257625619926032067",
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
+    "sqrtPriceAfter": "1212009174463079533160151083831",
+    "tickAfter": 54556,
+    "liquidityAfter": "40750525318880297726454"
+   },
+   "meta": {
+    "ticksCrossed": 0,
+    "steps": 1,
+    "partial": false,
+    "limitReached": false
+   }
+  },
+  {
    "blockNumber": 3516251,
    "txHash": "0x2a661576f64daf576ef255c7ec849428b06d3787015301bf38e8a0b77dafee99",
    "zeroForOne": false,
@@ -152360,9 +152511,9 @@
     "amountIn": "1236394342660718329",
     "amountOut": "284134694329987498909",
     "feePaid": "12363943426607184",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "12363943426607184",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1206824660807297546834667169387",
     "tickAfter": 54471,
     "liquidityAfter": "39921580488736844666297"
@@ -152429,6 +152580,69 @@
     "sqrtPriceAfter": "1213545295298251312512670598454",
     "tickAfter": 54582,
     "liquidityAfter": "39921580488736844666297"
+   },
+   "meta": {
+    "ticksCrossed": 0,
+    "steps": 1,
+    "partial": false,
+    "limitReached": false
+   }
+  },
+  {
+   "blockNumber": 3520011,
+   "txHash": "0x0cf3405c83f1355da7ff7a28365be48612623d90eeb8b0f7e244a544616f53e2",
+   "zeroForOne": false,
+   "feePips": 10000,
+   "mode": "exactIn",
+   "sqrtPriceLimitX96": "1461446703485210103287273052203988822378723970341",
+   "amountIn": "53078348086819498937",
+   "amountOut": "226073487329522369",
+   "sqrtPriceX96": "1207851667882832623693008498262",
+   "tick": 54488,
+   "liquidity": "42865855867849234676328",
+   "ticks": [
+    [
+     54600,
+     "-2557590887464916701692"
+    ],
+    [
+     54400,
+     "-635948136594166843718"
+    ],
+    [
+     54200,
+     "-38116009546944537605224"
+    ],
+    [
+     54800,
+     "-10413056766729599188335"
+    ]
+   ],
+   "source": {
+    "modeSource": "transaction-calldata",
+    "decodedFromCalldata": true,
+    "router": "universal-router",
+    "action": "SWAP_EXACT_IN_SINGLE",
+    "layout": "single/skip1word",
+    "amountSpecified": "53078348086819498937",
+    "sentinelLimit": "1461446703485210103287273052203988822378723970341",
+    "limitConfirmedBy": "chain-match-sentinel",
+    "limitInsensitive": false,
+    "txHash": "0x0cf3405c83f1355da7ff7a28365be48612623d90eeb8b0f7e244a544616f53e2",
+    "blockNumber": 3520011,
+    "zeroForOne": false,
+    "altLimitChecked": "1207948304914896230949401398717"
+   },
+   "expected": {
+    "amountIn": "53078348086819498937",
+    "amountOut": "226073487329522369",
+    "feePaid": "530783480868194990",
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
+    "sqrtPriceAfter": "1207948790567170572097515034926",
+    "tickAfter": 54489,
+    "liquidityAfter": "42865855867849234676328"
    },
    "meta": {
     "ticksCrossed": 0,
@@ -153431,9 +153645,9 @@
     "amountIn": "497500000000000000",
     "amountOut": "103494127470394875050",
     "feePaid": "4975000000000000",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "4975000000000000",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1148448120973147518850390064432",
     "tickAfter": 53479,
     "liquidityAfter": "130104234729967116320769"
@@ -155010,9 +155224,9 @@
     "amountIn": "1075583822318736815744",
     "amountOut": "5395479885960271943",
     "feePaid": "10755838223187368158",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "10755838223187368158",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1113241316859049599931455154258",
     "tickAfter": 52856,
     "liquidityAfter": "193538678282824443552089"
@@ -155199,9 +155413,9 @@
     "amountIn": "24132234011",
     "amountOut": "4726820999666",
     "feePaid": "241322341",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "241322341",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "1114417185055063174238303119762",
     "tickAfter": 52877,
     "liquidityAfter": "193682512015554178119759"
@@ -161169,9 +161383,9 @@
     "amountIn": "605217319159019204824",
     "amountOut": "3629341700045885624",
     "feePaid": "6052173191590192049",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "6052173191590192049",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1018455997769191316664812657450",
     "tickAfter": 51076,
     "liquidityAfter": "49797636204689390078048"
@@ -165379,9 +165593,9 @@
     "amountIn": "132595696009100215",
     "amountOut": "22080380918277996204",
     "feePaid": "1325956960091003",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "1325956960091003",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1027527342756825980423152623145",
     "tickAfter": 51254,
     "liquidityAfter": "51589250316153753575401"
@@ -167797,9 +168011,9 @@
     "amountIn": "257853036444067105",
     "amountOut": "44269901673744956751",
     "feePaid": "2578530364440672",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "2578530364440672",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1043317444517884902682246783305",
     "tickAfter": 51559,
     "liquidityAfter": "53395623166650640036554"
@@ -170219,9 +170433,9 @@
     "amountIn": "495000000000000000",
     "amountOut": "84742057286081912075",
     "feePaid": "4950000000000000",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "4950000000000000",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1041795607881703009717385566742",
     "tickAfter": 51529,
     "liquidityAfter": "53072920806418718929029"
@@ -171865,9 +172079,9 @@
     "amountIn": "3930437092620110040",
     "amountOut": "23095995422542782",
     "feePaid": "39304370926201101",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "39304370926201101",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "1028372667625818159062144094660",
     "tickAfter": 51270,
     "liquidityAfter": "51589250316153753575401"
@@ -173007,9 +173221,9 @@
     "amountIn": "495000000000000000",
     "amountOut": "82715060222834962389",
     "feePaid": "4950000000000000",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "4950000000000000",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1029259499044860738596069008696",
     "tickAfter": 51287,
     "liquidityAfter": "51589250316153753575401"
@@ -175228,9 +175442,9 @@
     "amountIn": "156462233985139308741",
     "amountOut": "919236130902710953",
     "feePaid": "1564622339851393088",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "1564622339851393088",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1028576220914870060980597857942",
     "tickAfter": 51274,
     "liquidityAfter": "53893891678553961985721"
@@ -176823,9 +177037,9 @@
     "amountIn": "11927212654967645",
     "amountOut": "2031745618205139417",
     "feePaid": "119272126549677",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
+    "feePaidSource": "onchain-feeGrowthGlobal",
+    "feePaidOnchain": "119272126549677",
+    "feePaidOnchainExact": true,
     "sqrtPriceAfter": "1039265670757311433312864517718",
     "tickAfter": 51481,
     "liquidityAfter": "57077936322379720873898"
@@ -182250,9 +182464,9 @@
     "amountIn": "22343178980605705",
     "amountOut": "3880194208054075841",
     "feePaid": "223431789806058",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "223431789806058",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1049337509268809624724538739043",
     "tickAfter": 51674,
     "liquidityAfter": "61260710192707789002534"
@@ -182827,262 +183041,6 @@
    "meta": {
     "ticksCrossed": 0,
     "steps": 1,
-    "partial": false,
-    "limitReached": false
-   }
-  },
-  {
-   "blockNumber": 3628670,
-   "txHash": "0xf0e7bf7bbae684cdcf3434b01b394c493b50c130f353658db53dc2d3d4582389",
-   "zeroForOne": true,
-   "feePips": 10000,
-   "mode": "exactIn",
-   "sqrtPriceLimitX96": "4295128740",
-   "amountIn": "499590934724159914",
-   "amountOut": "87308333840457746572",
-   "sqrtPriceX96": "1052702986323966661711733771642",
-   "tick": 51738,
-   "liquidity": "61260710192707789002534",
-   "ticks": [
-    [
-     51600,
-     "2688383437553354861141"
-    ],
-    [
-     51400,
-     "4847636720516515468872"
-    ],
-    [
-     52000,
-     "28520810354315566508131"
-    ],
-    [
-     51800,
-     "-2894968650214737435255"
-    ]
-   ],
-   "source": {
-    "modeSource": "chain-observable-hypothesis-test",
-    "exclusive": true,
-    "decodedFromCalldata": false,
-    "hypothesis": {
-     "exactInMatches": true,
-     "exactOutMatches": false
-    },
-    "amountSpecified": "499590934724159914",
-    "txHash": "0xf0e7bf7bbae684cdcf3434b01b394c493b50c130f353658db53dc2d3d4582389",
-    "blockNumber": 3628670,
-    "zeroForOne": true,
-    "limitInsensitive": true,
-    "altLimitChecked": "1052590070903289987381554603618"
-   },
-   "expected": {
-    "amountIn": "499590934724159914",
-    "amountOut": "87308333840457746572",
-    "feePaid": "4995909347241600",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
-    "sqrtPriceAfter": "1052590070903289987381554603618",
-    "tickAfter": 51736,
-    "liquidityAfter": "61260710192707789002534"
-   },
-   "meta": {
-    "ticksCrossed": 0,
-    "steps": 1,
-    "partial": false,
-    "limitReached": false
-   }
-  },
-  {
-   "blockNumber": 3628736,
-   "txHash": "0x99cda5ce2239cc6f7554b439aa7f56dcde3bbcef736bb3640c1afe7525e1da2b",
-   "zeroForOne": true,
-   "feePips": 10000,
-   "mode": "exactIn",
-   "sqrtPriceLimitX96": "4295128740",
-   "amountIn": "1330978405758464409",
-   "amountOut": "231532535991565384889",
-   "sqrtPriceX96": "1050375078505089555817023506449",
-   "tick": 51694,
-   "liquidity": "61260710192707789002534",
-   "ticks": [
-    [
-     51600,
-     "2688383437553354861141"
-    ],
-    [
-     51400,
-     "4847636720516515468872"
-    ],
-    [
-     52000,
-     "28520810354315566508131"
-    ],
-    [
-     51800,
-     "-2894968650214737435255"
-    ]
-   ],
-   "source": {
-    "modeSource": "chain-observable-hypothesis-test",
-    "exclusive": true,
-    "decodedFromCalldata": false,
-    "hypothesis": {
-     "exactInMatches": true,
-     "exactOutMatches": false
-    },
-    "amountSpecified": "1330978405758464409",
-    "txHash": "0x99cda5ce2239cc6f7554b439aa7f56dcde3bbcef736bb3640c1afe7525e1da2b",
-    "blockNumber": 3628736,
-    "zeroForOne": true,
-    "limitInsensitive": true,
-    "altLimitChecked": "1050075638662959500365747706624"
-   },
-   "expected": {
-    "amountIn": "1330978405758464409",
-    "amountOut": "231532535991565384889",
-    "feePaid": "13309784057584645",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
-    "sqrtPriceAfter": "1050075638662959500365747706624",
-    "tickAfter": 51688,
-    "liquidityAfter": "61260710192707789002534"
-   },
-   "meta": {
-    "ticksCrossed": 0,
-    "steps": 1,
-    "partial": false,
-    "limitReached": false
-   }
-  },
-  {
-   "blockNumber": 3628758,
-   "txHash": "0x2892e6153534b225e33143339469dbe3e3aa80f273df6420612657b107a7af2b",
-   "zeroForOne": true,
-   "feePips": 10000,
-   "mode": "exactIn",
-   "sqrtPriceLimitX96": "4295128740",
-   "amountIn": "1125621975295182741",
-   "amountOut": "196092719759775464746",
-   "sqrtPriceX96": "1051111622345760807674575607156",
-   "tick": 51708,
-   "liquidity": "61260710192707789002534",
-   "ticks": [
-    [
-     51600,
-     "2688383437553354861141"
-    ],
-    [
-     51400,
-     "4847636720516515468872"
-    ],
-    [
-     52000,
-     "28520810354315566508131"
-    ],
-    [
-     51800,
-     "-2894968650214737435255"
-    ]
-   ],
-   "source": {
-    "modeSource": "chain-observable-hypothesis-test",
-    "exclusive": true,
-    "decodedFromCalldata": false,
-    "hypothesis": {
-     "exactInMatches": true,
-     "exactOutMatches": false
-    },
-    "amountSpecified": "1125621975295182741",
-    "txHash": "0x2892e6153534b225e33143339469dbe3e3aa80f273df6420612657b107a7af2b",
-    "blockNumber": 3628758,
-    "zeroForOne": true,
-    "limitInsensitive": true,
-    "altLimitChecked": "1050858016636324534593593158390"
-   },
-   "expected": {
-    "amountIn": "1125621975295182741",
-    "amountOut": "196092719759775464746",
-    "feePaid": "11256219752951828",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
-    "sqrtPriceAfter": "1050858016636324534593593158390",
-    "tickAfter": 51703,
-    "liquidityAfter": "61260710192707789002534"
-   },
-   "meta": {
-    "ticksCrossed": 0,
-    "steps": 1,
-    "partial": false,
-    "limitReached": false
-   }
-  },
-  {
-   "blockNumber": 3628777,
-   "txHash": "0xd9a8031ea56fbfbf705bf94e5ddd9c59e8b0255c8449dcd4348247b60ecb3ec8",
-   "zeroForOne": false,
-   "feePips": 10000,
-   "mode": "exactIn",
-   "sqrtPriceLimitX96": "1461446703485210103287273052203988822378723970341",
-   "amountIn": "2647800366329966136436",
-   "amountOut": "15364984877541302808",
-   "sqrtPriceX96": "1032943272407964333191944842286",
-   "tick": 51359,
-   "liquidity": "53724690034637918672521",
-   "ticks": [
-    [
-     51200,
-     "1768857144773106777184"
-    ],
-    [
-     51000,
-     "4620622607926083780289"
-    ],
-    [
-     51600,
-     "2688383437553354861141"
-    ],
-    [
-     51400,
-     "4847636720516515468872"
-    ],
-    [
-     51800,
-     "-2894968650214737435255"
-    ]
-   ],
-   "source": {
-    "modeSource": "chain-observable-hypothesis-test",
-    "exclusive": true,
-    "decodedFromCalldata": false,
-    "hypothesis": {
-     "exactInMatches": true,
-     "exactOutMatches": false
-    },
-    "amountSpecified": "2647800366329966136436",
-    "txHash": "0xd9a8031ea56fbfbf705bf94e5ddd9c59e8b0255c8449dcd4348247b60ecb3ec8",
-    "blockNumber": 3628777,
-    "zeroForOne": false,
-    "limitInsensitive": true,
-    "altLimitChecked": "1036663233276834297922861227216"
-   },
-   "expected": {
-    "amountIn": "2647800366329966136436",
-    "amountOut": "15364984877541302808",
-    "feePaid": "26478003663299661365",
-    "feePaidSource": "independent-reference",
-    "feePaidOnchain": null,
-    "feePaidOnchainExact": false,
-    "sqrtPriceAfter": "1036663233276834297922861227216",
-    "tickAfter": 51431,
-    "liquidityAfter": "58572326755154434141393"
-   },
-   "meta": {
-    "ticksCrossed": 1,
-    "steps": 2,
     "partial": false,
     "limitReached": false
    }
@@ -183766,9 +183724,9 @@
     "amountIn": "5294901459545171032941",
     "amountOut": "28090561801239829633",
     "feePaid": "52949014595451710330",
-    "feePaidSource": "onchain-feeGrowthGlobal",
-    "feePaidOnchain": "52949014595451710330",
-    "feePaidOnchainExact": true,
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
     "sqrtPriceAfter": "1083295608683344212185920196874",
     "tickAfter": 52311,
     "liquidityAfter": "207757871750651477056390"
@@ -184024,6 +183982,69 @@
     "sqrtPriceAfter": "1076418771230778308176547499685",
     "tickAfter": 52183,
     "liquidityAfter": "407463146969653005809949"
+   },
+   "meta": {
+    "ticksCrossed": 0,
+    "steps": 1,
+    "partial": false,
+    "limitReached": false
+   }
+  },
+  {
+   "blockNumber": 3823563,
+   "txHash": "0xbe0cbb23a33f72b49eb15055676063e0d0843c5829c2606d73d48619559106a2",
+   "zeroForOne": false,
+   "feePips": 10000,
+   "mode": "exactIn",
+   "sqrtPriceLimitX96": "1461446703485210103287273052203988822378723970341",
+   "amountIn": "8955191660748738726",
+   "amountOut": "47813332031346325",
+   "sqrtPriceX96": "1078846875216998239420006523450",
+   "tick": 52228,
+   "liquidity": "455187993747278866656528",
+   "ticks": [
+    [
+     52600,
+     "-123193966964539065070507"
+    ],
+    [
+     52000,
+     "196446270835180923949027"
+    ],
+    [
+     52200,
+     "52687016095445968656075"
+    ],
+    [
+     52400,
+     "-80146357267751508185782"
+    ]
+   ],
+   "source": {
+    "modeSource": "chain-observable-hypothesis-test",
+    "exclusive": true,
+    "decodedFromCalldata": false,
+    "hypothesis": {
+     "exactInMatches": true,
+     "exactOutMatches": false
+    },
+    "amountSpecified": "8955191660748738726",
+    "txHash": "0xbe0cbb23a33f72b49eb15055676063e0d0843c5829c2606d73d48619559106a2",
+    "blockNumber": 3823563,
+    "zeroForOne": false,
+    "limitInsensitive": true,
+    "altLimitChecked": "1078848418334031400277601013531"
+   },
+   "expected": {
+    "amountIn": "8955191660748738726",
+    "amountOut": "47813332031346325",
+    "feePaid": "89551916607487388",
+    "feePaidSource": "independent-reference",
+    "feePaidOnchain": null,
+    "feePaidOnchainExact": false,
+    "sqrtPriceAfter": "1078848418334031400277601013531",
+    "tickAfter": 52228,
+    "liquidityAfter": "455187993747278866656528"
    },
    "meta": {
     "ticksCrossed": 0,

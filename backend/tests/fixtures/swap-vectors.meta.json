@@ -1,22 +1,39 @@
 {
   "fixture": "swap-vectors.json",
-  "bytes": 4847604,
-  "sha256": "b1aeb7476afef428d41f7fc84462a68bf585732e81464ad1cb313461b54e2d38",
-  "gzipBytes": 464159,
-  "gzipSha256": "2f99af53e02691b30da73113a0dede21d55924ada2fed07cd8a8725d99627e9c",
-  "generatedAt": "2026-11-10T06:21:09.596Z",
-  "generatorCommit": "38ded84adeb16a18dc081da5fad2895036c78c6c",
+  "bytes": 4848534,
+  "sha256": "4524bb85303dbd53e27577622168a8590fc8e77405d7237dd37ea4399d729304",
+  "gzipBytes": 464155,
+  "gzipSha256": "db9fde2082880fe9b43bee78419f99cb1295c7d17d6c23c97ef5296086618ca8",
+  "generatedAt": "2026-11-10T06:58:45.060Z",
+  "generatorCommit": "8e8e42270394f195a5bd75a90dc1cf78c31a9cdd",
+  "generatorCommitDirty": false,
+  "codeHashes": {
+    "scripts/swap-vectors.js": "3a352fdafb000310a2633742eade44f82947ac645ce0c157bd4482a83f80ad48",
+    "reference/v4/pool-swap.js": "243a03a5b6306015f3cd649ee0a013f5a8dbda8bfee29cebb3daa7c24462644c",
+    "reference/v4/router.js": "8bf867c8aa7305fa7e78445ff3e0bf2717f342e457e489f84a17141dbede157c",
+    "reference/v4/sqrtpricemath.js": "3d1ea37d74a2322a405a3e5536cd40dd07b3ef2bc2bb5b2d3a34450c0c8940c8",
+    "reference/v4/swapmath.js": "6fc0b784f70e59b84cfea27de741555e90a4766be32f824424884a96de35dc7d",
+    "reference/v4/tickmath.js": "18d6c8a18efa0e9792091a09831812f1d6eec32fa0461fa0e3da1f8950c63b1e"
+  },
+  "validationCounts": {
+    "calldataDecoded": 19,
+    "exclusiveHypothesis": 2981,
+    "feePaidFromChain": 43,
+    "feePaidFromReference": 2957,
+    "crossTick": 123,
+    "multiStep": 123
+  },
   "blockRange": {
     "from": 256083,
-    "to": 3805910,
-    "span": 3549827
+    "to": 3824334,
+    "span": 3568251
   },
   "poolId": "0xc96bfd21d36f8e7252f0d80fcb5f3bcacdf47c8b927b20711104713ebeb383ac",
   "poolManager": "0xe2e105d3f7209a9da11f83ccf3e7398a753823f1",
   "vectors": 3000,
   "byModeSource": {
-    "transactionCalldata": 17,
-    "chainObservableHypothesisTest": 2983
+    "transactionCalldata": 19,
+    "chainObservableHypothesisTest": 2981
   },
   "validation": {
     "modeSource": "transaction-calldata (方案A) | exclusive chain-observable hypothesis test (方案B)",
@@ -32,5 +49,10 @@
     "limitInsensitiveOnly": false,
     "limitSemanticsChecked": true
   },
-  "regenerate": "cd backend && node scripts/swap-vectors.js   # CI 默认离线使用本 fixture"
+  "provenanceNotes": [
+    "generatorCommit 是生成 fixture 时所用代码的快照（git rev-parse HEAD）；提交 fixture 后 HEAD 会前进，因此不要求它等于最新提交。",
+    "codeHashes 是生成时「生成器 + 独立参考实现」逐文件 SHA-256；测试会用当前工作树重算并比对，一旦代码改动而 fixture 未重新生成即失败。",
+    "fixture 不是运行测试时动态生成的：测试离线重放已提交的 fixture，不访问 RPC。"
+  ],
+  "regenerate": "cd backend && node scripts/swap-vectors.js   # 改动生成器或 reference/ 后必须重新生成；CI 默认离线使用本 fixture"
 }

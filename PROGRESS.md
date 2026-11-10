@@ -18,7 +18,7 @@
 |---|---|---|
 | P0-1 | `analysis.js` 的 `CHAIN.ID` → `CHAIN.id`；加显式校验；收益速度/Break-even 纯函数化 + 回归测试 | ✅ |
 | P0-2 | PM 对照脚本重写：权威 ABI 集合（Sourcify）、返回值解码、三类断言、代码存在性、逐项 PASS/FAIL、结论分列 | ✅ 10/10 探测通过 |
-| P0-3 | Swap 数学按官方源码逐行重写 + 链上参考向量回归 | ✅ 8455/8455 逐位一致 |
+| P0-3 | Swap 数学按官方源码逐行重写 + 链上参考向量回归 | ✅ 3000/3000 逐位一致（当前快照重新生成） |
 | P0-4 | 6 个测试文件 / 41 个用例（含向量离线重放） | ✅ `bun run test` 全绿 |
 | 口径 | 近似 IL / 静态近似交易量 / 预计余额 字段与文案修正 | ✅ |
 
@@ -64,6 +64,20 @@
 | 文档措辞不得声称完整行为等价 | `docs/M2-SIMULATOR.md` 第 2 节重写 + 口径声明；仅声明「本地 Swap 数学与链上事件逐位一致」 | 见文档 2.3 口径声明 |
 
 **本次结果**：3000/3000 逐位一致；覆盖 zeroForOne 1668 / oneForZero 1332 / 跨 tick 124 / 多步 124；feePaid 链上反推 59 条（59/59 一致）、其余由独立参考实现推导（fixture 内标注来源）。排除统计（透明）：假设检验均不匹配 429、限价敏感 260、区间内流动性变化 2962、同区块多笔 5917、calldata 未知路由器 1509、multi-hop 路径等。
+
+## M2 三次修订记录（回应 review：fixture provenance）
+
+| 要求 | 处理 | 证据 |
+|---|---|---|
+| 用当前代码重新生成 fixture | 已在提交 `8e8e422` 的代码快照上重新生成（生成时工作树干净） | `stats.generatorCommit = meta.generatorCommit = 8e8e422…`，`generatorCommitDirty = false` |
+| JSON / gzip / meta 同步更新 | 三者同批写入，meta 记录 sha256、gzip sha256、字节数 | `swap-vectors.meta.json` |
+| 生成提交可追溯 | 元数据新增 **逐文件 codeHashes**（生成器 + reference/v4 共 6 个文件）+ `validationCounts` | `meta.codeHashes` |
+| 测试加强 | 新增：`meta.generatorCommit === stats.generatorCommit`、生成时工作树干净、`codeHashes` 与当前工作树逐文件一致、reference 不反向依赖生产实现、gzip 内容与 JSON 一致 | `bun run test` → **52/52** |
+| 文档说明 | `docs/M2-SIMULATOR.md` 新增 2.4「fixture 溯源」：generatorCommit 是生成快照、fixture 非运行时动态生成、改动生成器/参考实现必须重新生成 | 文档 2.4 |
+| 命名与统计 | `mismatchCount` → `excludedCount`（避免误读为数学不一致）；新增 `validationCounts`（calldata / 排他性检验 / feePaid 链上 / feePaid 参考实现 / 跨 tick / 多步） | fixture `stats` |
+| fixture 体积 | **保留完整 fixture**，不缩减为抽样版本（review 决定） | JSON ≈ 4.8 MB / gzip ≈ 454 KB |
+
+**本次重新生成结果**：3000/3000 逐位一致；calldata 解码 19 / 排他性假设检验 2981（歧义 0）；跨 tick 123 / 多步 123；feePaid 链上反推 43 条（43/43 一致）、参考实现推导 2957 条。
 
 ## 下一步（M3 预览）
 
