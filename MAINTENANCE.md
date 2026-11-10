@@ -1,5 +1,24 @@
 # MAINTENANCE — 维护日志
 
+## 2026-11-10（review 修订：P0-1 ~ P0-4）
+
+### 被链上数据纠正的 V4 语义细节（**重要，后续实现勿再走弯路**）
+- **`getAmount0Delta` 是两步取整**：`divRoundingUp(mulDivRoundingUp(n1,n2,b), a)`，不是单步 `ceil(a·b/(c·d))`；差 1 wei 会让「是否到达 tick 边界」的判定翻转（症状：价格与链上差 1 ULP、amountOut 差几十 wei）
+- **手续费逐步计算**：每个 step 内先 `lessFee = floor(剩余输入 × (1e6−fee)/1e6)` 推进价格；到达边界时 `fee = ceil(amountIn × fee/(1e6−fee))`；未到边界时 `amountIn = lessFee`、`fee = 剩余 − amountIn`
+- **tick 更新规则**：到达 tick 边界 → `tick = 边界−1`（零对一）/`边界`（一对零）；价格移动但未到边界 → `getTickAtSqrtRatio(价格)`；**价格未移动（只消耗手续费尘埃）→ tick 保持不变**
+- **价格限制（`sqrtPriceLimitX96`）**：限价比边界更近 → 停在限价；限价恰为 tick 边界 → **先跨 tick（更新流动性/tick）再停止**；限价等于起始价 → 不成交
+- **链上同时存在 exact-in 与 exact-out 两种交易**（路由器拆单/限价单常见）→ 估算器两种模式都实现
+- **Swap 事件金额是交易者视角**：负数 = 付出（输入），正数 = 收到（输出）
+
+### 验证方法（可复用）
+- `backend/scripts/swap-vectors.js`：拉取池的真实 Swap + ModifyLiquidity 事件 → 只取「相邻两笔 Swap 之间无流动性变化」的样本 → 用前一笔后状态复现后一笔 → **8455/8455 逐位一致**（含 919 笔跨 tick），产物 `backend/tests/fixtures/swap-vectors.json` 供离线重放
+- `backend/scripts/pm-behavior-compare.js`：权威选择器集合取自官方已部署合约 ABI（Sourcify 验证源）；Probe 解码后三分类断言（same-value / same-shape / chain-specific）→ 报告 `docs/M2-PM-BEHAVIOR.md`
+
+### 修复
+- `analysis.js`：`CHAIN.ID` → `CHAIN.id`（原写法恒为 undefined → 收益速度查询永远匹配不到）；新增显式校验，禁止把参数错误静默当作「采样不足」
+- 测试体系：新增 `backend/tests/*.test.js`（41 用例），`bun run test` 一键运行；`package.json` 增加 `test` 脚本
+- 口径与字段：`lpVsHodlExcludingCurrentFeesUsd`、`requiredVolumeApproxUsd`、`projectedBalanceAfterRemove`；前端与文档同步
+
 ## 2026-11-10
 
 ### M2（模拟器）开发

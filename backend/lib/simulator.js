@@ -21,6 +21,20 @@ const FEE_PIPS = Number(POOL_KEY.fee);
 const KNTQ_ADDR = TOKENS.KNTQ.address;
 const GAS_STATIC = { mint: 420000, remove: 165000, collect: 100000 };
 const DEADLINE = 2000000000n; // 仅用于 gas 估算（不上链）
+const DUST = 10n ** 12n; // 1e-6 代币以下视为尘埃，不触发兑换估算
+
+/** 纯函数：撤池后的预计余额（只加入本次撤池预计收到的资产，不扣 Gas、不含并发交易影响） */
+function projectedBalances({ before0, before1, out0, out1, fee0, fee1 }) {
+  const b0 = BigInt(before0); const b1 = BigInt(before1);
+  const o0 = BigInt(out0); const o1 = BigInt(out1);
+  const f0 = BigInt(fee0 || 0n); const f1 = BigInt(fee1 || 0n);
+  return {
+    before: { hype: b0.toString(), kntq: b1.toString() },
+    after: { hype: (b0 + o0 + f0).toString(), kntq: (b1 + o1 + f1).toString() },
+    delta: { hype: (o0 + f0).toString(), kntq: (o1 + f1).toString() },
+    note: '仅加入本次撤池预计收到的资产（含待领手续费），未扣除 Gas 与其他并发交易影响',
+  };
+}
 
 function gasNoteFromError(e) {
   const msg = String((e && (e.shortMessage || e.message)) || e);
@@ -146,10 +160,9 @@ async function simulateMint(input) {
   }
 
   // —— 多余资产 → 本地兑换估算（两步法：先兑换再建仓）——
-  const DUST = 10n ** 12n; // 1e-6 代币以下视为尘埃，不触发兑换估算
   let leftover0 = amount0 - base.used0;
   let leftover1 = amount1 - base.used1;
-  if (leftover0 < DUST) leftover0 = 0n;
+  if (leftover0 < DUST) leftover0 = 0n; // 尘埃阈值（1e-6 代币）
   if (leftover1 < DUST) leftover1 = 0n;
   let swap = null;
   let final0 = base.used0;
@@ -168,12 +181,13 @@ async function simulateMint(input) {
         amountOut: q.amountOut.toString(),
         amountOutHuman: fmt(q.amountOut),
         feePaid: q.feePaid.toString(),
-        priceImpactPct: Number(q.priceImpactPct.toFixed(4)),
+        priceImpactPct: q.priceImpactPct != null ? Number(q.priceImpactPct.toFixed(4)) : null,
+        priceChangePct: Number(q.priceChangePct.toFixed(4)),
         ticksCrossed: q.ticksCrossed,
         partial: q.partial,
       };
       if (q.partial) warnings.push('兑换估算未能完全成交（池内流动性不足），请减小金额或调整区间');
-      if (Math.abs(q.priceImpactPct) > 3) warnings.push(`兑换价格影响较大（${q.priceImpactPct.toFixed(2)}%）`);
+      if (q.priceImpactPct != null && Math.abs(q.priceImpactPct) > 3) warnings.push(`兑换价格影响较大（${q.priceImpactPct.toFixed(2)}%）`);
       if (zeroForOne) { final0 = base.used0 + amountIn; final1 = base.used1 + q.amountOut; }
       else { final1 = base.used1 + amountIn; final0 = base.used0 + q.amountOut; }
       sqrtAfter = q.sqrtPriceAfter;
@@ -333,12 +347,14 @@ async function simulateRemove(input) {
         amountIn: out.amount1.toString(), amountInHuman: fmt(out.amount1),
         amountOut: q.amountOut.toString(), amountOutHuman: fmt(q.amountOut),
         feePaid: q.feePaid.toString(),
-        priceImpactPct: Number(q.priceImpactPct.toFixed(4)),
-        slippagePct: Number(Math.abs(q.priceImpactPct).toFixed(4)),
+        priceImpactPct: q.priceImpactPct != null ? Number(q.priceImpactPct.toFixed(4)) : null,
+        priceChangePct: Number(q.priceChangePct.toFixed(4)),
+        slippagePct: q.priceImpactPct != null ? Number(Math.abs(q.priceImpactPct).toFixed(4)) : null,
+        note: '本地 V4 数学估算（非官方 Quoter，已用链上真实 Swap 事件 8467 条参考向量逐位校验）',
         partial: q.partial,
       };
       if (q.partial) warnings.push('兑换估算未能完全成交（池内流动性不足），请分批退出');
-      if (Math.abs(q.priceImpactPct) > 3) warnings.push(`退出兑换价格影响较大（${q.priceImpactPct.toFixed(2)}%）`);
+      if (q.priceImpactPct != null && Math.abs(q.priceImpactPct) > 3) warnings.push(`退出兑换价格影响较大（${q.priceImpactPct.toFixed(2)}%）`);
     }
   }
 
@@ -356,23 +372,18 @@ async function simulateRemove(input) {
     gas.note = '未提供钱包地址，使用静态估算';
   }
 
-  // —— 交易后余额 ——
-  let balancesAfter = null;
+  // —— 交易后预计余额（口径：只加本次收入，不扣 Gas）——
+  let projectedBalanceAfterRemove = null;
   if (owner) {
     try {
       const w = await chain.loadWallet(owner, []);
       const hype = w.balances.find((b) => b.symbol === 'HYPE');
       const kntq = w.balances.find((b) => b.symbol === 'KNTQ');
-      const before0 = hype ? BigInt(hype.raw) : 0n;
-      const before1 = kntq ? BigInt(kntq.raw) : 0n;
-      const after0 = before0 + out.amount0 + fee0;
-      const after1 = before1 + out.amount1 + fee1;
-      balancesAfter = {
-        before: { hype: before0.toString(), kntq: before1.toString() },
-        after: { hype: after0.toString(), kntq: after1.toString() },
-        delta: { hype: (out.amount0 + fee0).toString(), kntq: (out.amount1 + fee1).toString() },
-      };
-    } catch (e) { balancesAfter = { error: String(e.message || e).slice(0, 120) }; }
+      projectedBalanceAfterRemove = projectedBalances({
+        before0: hype ? hype.raw : 0n, before1: kntq ? kntq.raw : 0n,
+        out0: out.amount0, out1: out.amount1, fee0, fee1,
+      });
+    } catch (e) { projectedBalanceAfterRemove = { error: String(e.message || e).slice(0, 120) }; }
   }
 
   let prices = null;
@@ -419,9 +430,9 @@ async function simulateRemove(input) {
     },
     exitSwap,
     gas: { ...gas, gasCostHype: fmt(BigInt(gas.value)) },
-    balancesAfter,
-    dataSources: { position: 'PositionManager(链上)', fees: 'feeGrowth 数学读取', swap: exitSwap ? '本地兑换估算' : null },
+    projectedBalanceAfterRemove,
+    dataSources: { position: 'PositionManager(链上)', fees: 'feeGrowth 数学读取', swap: exitSwap ? '本地 V4 数学估算（非官方 Quoter）' : null },
   };
 }
 
-module.exports = { simulateMint, simulateRemove, quoteSwap, GAS_STATIC };
+module.exports = { simulateMint, simulateRemove, quoteSwap, GAS_STATIC, gasNoteFromError, projectedBalances, DUST };

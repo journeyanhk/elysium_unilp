@@ -232,7 +232,7 @@ export default function SimulatorPanel({
               {mintRes.swap && (
                 <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-3 text-[11px] text-sky-200">
                   多余资产兑换估算（{mintRes.swap.direction}）：{fmtAmount(Number(mintRes.swap.amountInHuman))} → {fmtAmount(Number(mintRes.swap.amountOutHuman))}，
-                  价格影响 {mintRes.swap.priceImpactPct}%，手续费 {fmtAmount(Number(mintRes.swap.feePaid) / 1e18)}
+                  执行价影响（含费率）{mintRes.swap.priceImpactPct}%{mintRes.swap.priceChangePct != null ? ` · 池价变化 ${mintRes.swap.priceChangePct}%` : ''}，手续费 {fmtAmount(Number(mintRes.swap.feePaid) / 1e18)}
                   {mintRes.swap.ticksCrossed ? `，跨 ${mintRes.swap.ticksCrossed} 个 tick` : ''}
                   {mintRes.swap.partial ? '（未完全成交）' : ''}
                 </div>
@@ -313,8 +313,8 @@ export default function SimulatorPanel({
                     <Row k="剩余流动性" v={rmRes.remove.liquidityRemaining} />
                     <Row k="Gas 估算" v={`${Number(rmRes.gas.value).toLocaleString()}（${rmRes.gas.source === 'estimateGas' ? '链上模拟' : '静态'}）`} />
                     <Row k="NFT 状态" v={rmRes.remove.willClose ? '流动性归零（NFT 保留）' : '保留剩余流动性'} />
-                    {rmRes.balancesAfter?.delta && (
-                      <Row k="余额变化" v={`+${fmtAmount(Number(rmRes.balancesAfter.delta.hype) / 1e18)} HYPE / +${fmtAmount(Number(rmRes.balancesAfter.delta.kntq) / 1e18)} KNTQ`} />
+                    {rmRes.projectedBalanceAfterRemove?.delta && (
+                      <Row k="撤池后预计余额变化" v={`+${fmtAmount(Number(rmRes.projectedBalanceAfterRemove.delta.hype) / 1e18)} HYPE / +${fmtAmount(Number(rmRes.projectedBalanceAfterRemove.delta.kntq) / 1e18)} KNTQ`} />
                     )}
                   </div>
                 </div>
@@ -322,7 +322,8 @@ export default function SimulatorPanel({
               {rmRes.exitSwap && (
                 <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-3 text-[11px] text-sky-200">
                   退出滑点估算（{rmRes.exitSwap.direction}）：{fmtAmount(Number(rmRes.exitSwap.amountInHuman))} → {fmtAmount(Number(rmRes.exitSwap.amountOutHuman))}，
-                  价格影响 {rmRes.exitSwap.priceImpactPct}%{rmRes.exitSwap.partial ? '（未完全成交，建议分批）' : ''}
+                  执行价影响（含费率）{rmRes.exitSwap.priceImpactPct}%{rmRes.exitSwap.priceChangePct != null ? ` · 池价变化 ${rmRes.exitSwap.priceChangePct}%` : ''}
+                  {rmRes.exitSwap.partial ? '（未完全成交，建议分批）' : ''}
                 </div>
               )}
             </div>
@@ -368,7 +369,7 @@ export default function SimulatorPanel({
                       k="LP − HODL"
                       v={<span className={anRes.comparison.diffUsd >= 0 ? 'text-emerald-300' : 'text-red-300'}>{fmtUsd(anRes.comparison.diffUsd)}</span>}
                     />
-                    <Row k="其中无常损失部分" v={`${fmtUsd(anRes.comparison.ilUsd)}（${fmtPct(anRes.comparison.ilPct)}）`} />
+                    <Row k="相对 HODL 差额（扣除当前未领取手续费）" v={`${fmtUsd(anRes.comparison.lpVsHodlExcludingCurrentFeesUsd)}（${fmtPct(anRes.comparison.lpVsHodlExcludingCurrentFeesPct)}）`} />
                   </div>
                   <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
                     <div className="mb-1 text-[11px] text-zinc-500">Break-even</div>
@@ -376,7 +377,7 @@ export default function SimulatorPanel({
                     <Row k="Gas 成本（建仓+撤池+领费）" v={fmtUsd(anRes.breakeven.gasUsd, 2)} />
                     <Row k="桥接成本" v={fmtUsd(anRes.breakeven.bridgeCostUsd)} />
                     <Row k="合计需覆盖" v={fmtUsd(anRes.breakeven.requiredFeesUsd)} />
-                    <Row k="所需池内交易量" v={anRes.breakeven.requiredVolumeUsd != null ? fmtUsd(anRes.breakeven.requiredVolumeUsd) : '—'} />
+                    <Row k="所需池内交易量（静态近似）" v={anRes.breakeven.requiredVolumeApproxUsd != null ? fmtUsd(anRes.breakeven.requiredVolumeApproxUsd) : '—'} />
                     <Row k="按当前收益速度" v={anRes.breakeven.daysToCover != null ? `${anRes.breakeven.daysToCover} 天` : (anRes.breakeven.feeVelocityNote || '采样中')} />
                   </div>
                   <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
@@ -429,6 +430,8 @@ export default function SimulatorPanel({
 
       <div className="mt-3 border-t border-zinc-800/70 pt-2 text-[10px] leading-4 text-zinc-600">
         M2 边界：本面板只做模拟与计算，不会构造任何交易、不请求任何签名；真实操作（组池 / 领费 / 撤池）在 M3 交易开关通过后才开放。
+        本地 V4 数学（含跨 tick、手续费逐步取整、价格限制）已用链上真实 Swap 事件 8455 条参考向量逐位校验（全部一致），但仍属**本地估算、非官方 Quoter**，实际结果以链上执行为准；
+        「相对 HODL 差额」为近似 IL（不含已领取手续费与完整价格路径），「所需交易量」为静态近似（假设区间内成交、份额不变），不是成交量预测。
         {writesDisabledReason() ? `（当前：${writesDisabledReason()}）` : ''}
       </div>
     </section>

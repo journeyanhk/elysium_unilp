@@ -1,6 +1,6 @@
-# 「KNTQ/HYPE LP 管理器」技术方案与开发计划（v0.4.0）
+# 「KNTQ/HYPE LP 管理器」技术方案与开发计划（v0.4.1）
 
-> 状态：v0.4.0 · M0 已合并 · M1 已合并（review 通过）· **M2 模拟器开发完成，待 review**
+> 状态：v0.4.1 · M0 已合并 · M1 已合并 · **M2 依 review 修订完成（4 个阻塞项已修复），待二次 review**
 > 更新日期：2026-11-10
 > 协作：每阶段一个 PR（review 通过再进下一阶段）；提交署名 xnananx；仓库公开（不含任何密钥）
 > 关联材料：uploads/ 两份分析文档（Elysium 可行性评估、目标是赚手续费应该如何选）
@@ -131,7 +131,7 @@
 
 **Elysium V4 部署（候选，身份核验详见 docs/M0-VERIFICATION.md 修订 R1）：**
 - PoolManager 候选 `0xe2e105d3f7209a9da11f83ccf3e7398a753823f1`（24009B；与官方构建逐字节一致；2026-11-03 部署）
-- PositionManager 候选 `0x1d1c51b9d07fd27d36412a2b66cc23d19eb3e518`（19965B；**M2 对照：37/37 选择器与官方一致，只读行为/错误语义/permit2 不变量一致，内部实现等价性仍无法只读证明**）
+- PositionManager 候选 `0x1d1c51b9d07fd27d36412a2b66cc23d19eb3e518`（19965B；**M2 只读 Probe 对照：以官方 ABI 为权威集合（39 个函数），Elysium/ETH/Base 三者选择器集合完全一致（0 差异），same-value / same-shape / chain-specific 共 10 项探测全部通过；内部实现等价性与写路径行为仍未证明**）
 - KNTQ/HYPE 池（2026-11-09 08:49 UTC 创建）：完整 PoolKey 与数据快照见报告 §3.5
 - 其它 v4 风格部署（至少 4 个活跃，不同部署者）：全部排除
 - 部署批次（17 个合约）与创建交易哈希：见报告 §3.1 / §3.4
@@ -168,4 +168,5 @@
 - v0.3（2026-11-09）：锁定决策；接入远端仓库；新增 M6 部署与交付；首次推送。
 - v0.3.1（2026-11-09）：署名 xnananx；钱包 OKX 优先；VPS 完整部署方案；仓库保持公开；M0 启动。
 - v0.3.2（2026-11-09）：M0 修订 R1（依 review）：白名单读写分离（全部 writeEnabled=false）；PoolKey 补全（currency0/currency1/fee/tickSpacing/hooks + 排序规则）；PositionManager 结论降级为「接口面一致、实现等价性待 M2」；目标池状态改为 verified-parameters；BridgeRouter 降级为 verified-address 并限定核验范围；RPC 端点表述修正（failover 未启用 + 准入条件）；M1 头寸枚举改用 Transfer 事件索引；池龄 < 7 天列为硬性警告。
+- v0.4.1（2026-11-10）：M2 依 review 修订。**P0-1** `analysis.js` 的 `CHAIN.ID` → `CHAIN.id` 并加显式校验（禁止把参数错误当成采样不足）；**P0-2** PM 对照脚本重写：权威选择器集合改用官方已部署合约 ABI（Sourcify），Probe 解码后按 same-value / same-shape / chain-specific 三类逐项断言；**P0-3** Swap 数学按官方 `SwapMath`/`SqrtPriceMath` 逐行重写（两步取整、逐步手续费、价格限制、exact-out、tick 更新规则），并用链上真实 Swap 事件做参考向量：**8455/8455 逐位一致（含 919 笔跨 tick）**；**P0-4** 新增 41 个自动化回归测试（`bun run test`，含向量离线重放）。口径修正：`lpVsHodlExcludingCurrentFeesUsd`（近似 IL）/`requiredVolumeApproxUsd`（静态近似）/`projectedBalanceAfterRemove`（不含 Gas），文档统一为「本地 V4 数学估算，非官方 Quoter」「只读 Probe 对照完成，写路径未验证」。
 - v0.4.0（2026-11-10）：M1 已合并；M2 模拟器完成（建仓/撤池模拟、无常损失 + HODL 对照、Break-even、退出滑点、价格情景；PositionManager 行为级对照）。工程更新：**区块速度实测 0.1s/块**（高度阈值改为时间口径、重组窗口放大到 3000 块）；**新增第二 RPC 端点 drpc（通过准入检查，日志查询仅走主端点）**；**RPC 限流退避 + 请求合并（Multicall3）**；V4Quoter 因选择器与官方不符被排除（报价改用本地数学）；ModifyLiquidity 台账（salt=tokenId 已链上验证）+ 历史价格还原；索引并发互斥；候选头寸截断提示。

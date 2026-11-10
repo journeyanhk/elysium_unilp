@@ -54,7 +54,7 @@ const CONTRACTS = {
     status: 'pending-official',
     readEnabled: true,
     writeEnabled: false,
-    evidence: 'M2 行为级对照（2026-11-10）：与官方 ETH/Base 部署 37/37 函数选择器一致；同一 calldata 的只读返回与 revert 错误选择器一致（ownerOf 不存在/空 actions/未知 action/multicall）；permit2() 三链返回一致。runtime 体积 19965B vs 官方 23877B（≈16% 差异）——内部实现（存储布局/事件顺序/gas）等价性无法通过只读手段证明，故维持 pending-official + 只读。详见 docs/M2-PM-BEHAVIOR.md',
+    evidence: 'M2 只读 Probe 对照（2026-11-10）：以官方已部署合约 ABI（Sourcify 验证源，39 个函数）为权威集合，Elysium 与 ETH/Base 的字节码选择器集合完全一致（差集 0）；10 项探测全部通过（same-value：permit2；same-shape：ownerOf 不存在/空 actions/未知 action/合法编码但头寸不存在/multicall；chain-specific：getPoolAndPositionInfo、getPositionLiquidity、nextTokenId、poolManager 目标关系）。**写路径行为与内部实现等价性未验证**，故维持 pending-official + 只读。详见 docs/M2-PM-BEHAVIOR.md',
   },
   positionDescriptor: {
     address: '0x599141dbd536891ef30b81883bfb4a621dc3f496',

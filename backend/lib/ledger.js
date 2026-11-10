@@ -125,6 +125,34 @@ async function tickLiquidityNet() {
   return map;
 }
 
+/**
+ * 纯函数：把台账事件折叠成合计（按 (block, logIndex) 去重 → 重复同步/重复事件不改变结果）。
+ * @param {Array<{block:number, logIndex?:number, liquidityDelta:string|bigint, amount0:string|bigint, amount1:string|bigint}>} events
+ */
+function foldLedgerEvents(events) {
+  const seen = new Set();
+  let dep0 = 0n; let dep1 = 0n; let wd0 = 0n; let wd1 = 0n;
+  const list = [];
+  for (const e of events || []) {
+    const key = `${Number(e.block)}:${Number(e.logIndex ?? 0)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const a0 = BigInt(e.amount0 || 0n); const a1 = BigInt(e.amount1 || 0n);
+    const delta = BigInt(e.liquidityDelta || 0n);
+    const add = delta > 0n;
+    if (add) { dep0 += a0; dep1 += a1; } else { wd0 += a0; wd1 += a1; }
+    list.push({ ...e, add });
+  }
+  return {
+    events: list,
+    totals: {
+      deposited0: dep0.toString(), deposited1: dep1.toString(),
+      withdrawn0: wd0.toString(), withdrawn1: wd1.toString(),
+      net0: (dep0 - wd0).toString(), net1: (dep1 - wd1).toString(),
+    },
+  };
+}
+
 /** 单个头寸的建仓台账（每次加减仓的时间、价格、数量） */
 async function getLedger(tokenId) {
   const { rows } = await dbQuery(
@@ -132,7 +160,6 @@ async function getLedger(tokenId) {
      FROM liquidity_events WHERE chain_id=$1 AND pool_id=$2 AND token_id=$3
      ORDER BY block_number ASC, log_index ASC`, [CHAIN_ID, POOL_ID, String(tokenId)]);
   const events = [];
-  let dep0 = 0n; let dep1 = 0n; let wd0 = 0n; let wd1 = 0n;
   for (const r of rows) {
     const price = await priceBeforeBlock(Number(r.block_number));
     const time = await blockTimeOf(Number(r.block_number));
@@ -146,28 +173,19 @@ async function getLedger(tokenId) {
         delta < 0n ? -delta : delta);
       amount0 = amts.amount0; amount1 = amts.amount1;
     }
-    const add = delta > 0n;
-    if (add) { dep0 += amount0; dep1 += amount1; } else { wd0 += amount0; wd1 += amount1; }
     events.push({
       block: Number(r.block_number),
+      logIndex: Number(r.log_index),
       txHash: r.tx_hash,
       time: time ? new Date(time).toISOString() : null,
       tickLower: Number(r.tick_lower), tickUpper: Number(r.tick_upper),
       liquidityDelta: delta.toString(),
-      add,
       priceAtEvent: price ? { sqrtPriceX96: price.sqrtPriceX96, tick: price.tick, kntqPerHype: v4math.priceFromSqrtX96(price.sqrtPriceX96).toString() } : null,
       amount0: amount0.toString(), amount1: amount1.toString(),
     });
   }
-  return {
-    tokenId: String(tokenId),
-    events,
-    totals: {
-      deposited0: dep0.toString(), deposited1: dep1.toString(),
-      withdrawn0: wd0.toString(), withdrawn1: wd1.toString(),
-      net0: (dep0 - wd0).toString(), net1: (dep1 - wd1).toString(),
-    },
-  };
+  const folded = foldLedgerEvents(events);
+  return { tokenId: String(tokenId), events: folded.events, totals: folded.totals };
 }
 
 /** 按需同步（默认 10 分钟内只同步一次；供模拟/分析路由调用） */
@@ -185,4 +203,4 @@ async function ensureSynced({ maxAgeMs = 10 * 60 * 1000 } = {}) {
   }
 }
 
-module.exports = { ML_TOPIC, getMlStatus, syncLiquidityEvents, ensureSynced, priceBeforeBlock, blockTimeOf, tickLiquidityNet, getLedger };
+module.exports = { ML_TOPIC, getMlStatus, syncLiquidityEvents, ensureSynced, priceBeforeBlock, blockTimeOf, tickLiquidityNet, getLedger, foldLedgerEvents };

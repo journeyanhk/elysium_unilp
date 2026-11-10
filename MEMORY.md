@@ -47,7 +47,9 @@
 - PoolManager 不提供 getSlot0/getPositionLiquidity 等读取函数（该版本）→ 池状态一律走 StateView；头寸流动性走 PM.getPositionLiquidity。
 - PositionInfo 打包：`200bit poolId(截断) | 24bit tickUpper | 24bit tickLower | 8bit hasSubscriber`。
 - **ModifyLiquidity 事件 salt = bytes32(tokenId)**（已链上验证：台账 Σ delta == getPositionLiquidity）→ 可还原单头寸每次加减仓。
-- **本地 V4 数学**（`lib/v4math.js`）：decimal.js(80 位)+ceil 与「大整数有理数真值」逐位一致；金额用 BigInt 定点；兑换估算用「区间恒定 L + 跨 tick 走位（净流动性来自 ModifyLiquidity 事件）」。
+- **本地 V4 数学**（`lib/v4math.js`）：decimal.js(80 位)+ceil 与高精度真值逐位一致；金额用 BigInt 定点；兑换估算按官方 `SwapMath`/`SqrtPriceMath` **逐行实现**（两步取整、逐步手续费、跨 tick、价格限制、exact-in/exact-out、tick 更新规则），已用**链上真实 Swap 事件 8455 条参考向量逐位校验（全部一致，含 919 笔跨 tick）**。
+- **Swap 事件金额 = 交易者视角**（负数=付出/输入，正数=收到/输出）；链上同时存在 exact-in 与 exact-out 交易。
+- **V4 关键取整语义**（曾踩坑）：`getAmount0Delta` 两步取整；到边界 `fee=ceil(amountIn×费率/(1e6−费率))`；未到边界 `amountIn=lessFee`；到达边界后 `tick=边界−1`（零对一）；价格未移动则 tick 不变；限价恰为边界时先跨 tick 再停。
 - **viem multicall 返回 `{status,result}` 形态**（默认 allowFailure 语义）→ 必须用兼容读取（chain.js 的 `mcRes`）。
 - `eth_estimateGas` 的 `value` 需偶数长度 hex；建仓估算失败常见原因是地址余额不足（编码有效）。
 - **日志查询上限 1 万条**（-32005）：分块自适应；「0 条」结果要先确认是不是被吞掉的错误。
@@ -63,11 +65,13 @@
 - 后端：Express（SDK createServer），路由 `backend/routes/*.js` → `/api/*`；链上读取 `backend/lib/chain.js`（多端点 + 限流退避 + Multicall）；索引 `lib/indexer.js`（Transfer，互斥同步）；**台账 `lib/ledger.js`（ModifyLiquidity + 历史价格缓存）**；**数学 `lib/v4math.js`**；**模拟 `lib/simulator.js`**；**风险分析 `lib/analysis.js`**；采样 `lib/sampling.js`；价格 `lib/prices.js`；写拦截 `lib/tx-guard.js`；cron `cron.json` + `cron/sample.js`（每 5 分钟）。
 - 数据库（dbQuery / Drizzle 声明于 `backend/db/schema.js`）：position_transfers、indexer_state、position_samples、pool_samples、tracked_positions、**liquidity_events、block_prices、block_times**（唯一索引由 `lib/db.js` 的 ensureIndexes 幂等创建）。
 - 前端：Vite + React 19 + react-query；`App.tsx` 组装；组件在 `src/components/`（含 **SimulatorPanel：建仓/撤池/风险分析三页签**）；API 用 `src/lib/api.ts` 的 `api()`；钱包只读连接 `src/lib/wallet.ts`（OKX 优先）；写拦截 `src/lib/tx-guard.ts`。
+- 测试：`backend/tests/*.test.js`（node:test，41 用例，含 8455 条链上向量离线重放）；`backend/scripts/swap-vectors.js`（生成参考向量）、`backend/scripts/pm-behavior-compare.js`（PM 对照报告）。
 - 前端不直接访问 RPC；一切链上数据经后端。
 - 脚本：`backend/scripts/pm-behavior-compare.js`（PM 行为对照 → `docs/M2-PM-BEHAVIOR.md`）。
 
 ## 当前协作状态
 
-- M0 已合并 main（`1c39534`）；M1 已合并 main（`d135736`，review 通过）；**M2 开发完成（分支 `m2-simulator`），待 review**。
-- M2 交付：建仓/撤池模拟、无常损失 + HODL 对照、Break-even、退出滑点、价格情景、PM 行为级对照；全部只模拟不签名。
+- M0 已合并 main（`1c39534`）；M1 已合并 main（`d135736`）；**M2 依 review 修订完成（分支 `m2-simulator`），待二次 review**。
+- M2 交付：建仓/撤池模拟、LP vs HODL（近似 IL）、Break-even（静态近似）、退出滑点、价格情景、PM 只读 Probe 对照；全部只模拟不签名。
+- M2 修订要点：`CHAIN.id` 修复；PM 对照改用官方 ABI 权威集合 + 三分类断言（10/10 通过）；Swap 数学逐行对齐官方 + 8455 条链上向量验证；41 个自动化测试（`cd backend && bun run test`）。
 - GitHub PR 自动创建受限（PAT 缺 Pull requests 权限）→ 用 compare 链接或请用户合并。

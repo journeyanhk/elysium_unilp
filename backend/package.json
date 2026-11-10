@@ -2,7 +2,8 @@
   "name": "backend",
   "private": true,
   "scripts": {
-    "dev": "node scripts/check-env.js node --watch server.js"
+    "dev": "node scripts/check-env.js node --watch server.js",
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
     "@surf-ai/sdk": "1.0.5",
