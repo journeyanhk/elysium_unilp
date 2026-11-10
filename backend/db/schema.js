@@ -186,3 +186,14 @@ exports.gateKillSwitch = pgTable('gate_kill_switch', {
   review_note: text('review_note'),
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
 });
+
+// 门禁额度/频率桶（原子占用；并发下由条件 UPDATE 的行锁保证不超额）
+// bucket_key 例：'day:2026-11-10' / 'minute:2026-11-10T12:34'（可带测试命名空间前缀）
+exports.txGateBuckets = pgTable('tx_gate_buckets', {
+  bucket_key: text('bucket_key').primaryKey(),
+  scope: text('scope').notNull(), // day | minute
+  bucket: text('bucket').notNull(),
+  tx_count: integer('tx_count').notNull().default(0),
+  amount_cents: integer('amount_cents').notNull().default(0), // 金额以「分」存整数，避免浮点误差
+  updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+});

@@ -119,6 +119,18 @@
 
 实测：他人地址预演 → `HTTP 403`；正确用户 → 预检报 `NATIVE_BALANCE_LOW` + `TOKEN_BALANCE_LOW`（并附两级授权读数）。测试 **121/121**。
 
+## M3.2 阻塞项修复（2026-11-10，门禁 `M3-gate-3`）
+
+| 项 | 处理 | 证据 |
+|---|---|---|
+| P0-1 并发绕过 | `tx_gate_buckets` + `reserveQuota()`：条件原子 UPDATE（分钟笔数 → 日笔数 → 日金额），失败回滚；金额以「分」存整数 | 真实 Postgres 并发测试：5 并发 + 每分钟 1 → 恰好 1 通过；5×1 USD + 日上限 3 USD → 恰好 3 通过 |
+| P0-2 审计 fail-closed | 审计失败 → `GATE_AUDIT_FAILED` 拒绝 + 释放额度；状态读取失败 → `GATE_STATE_UNAVAILABLE`；新增 `authorizeTx()` 一体化入口 | `tests/tx-gate.test.js`（拒绝 + 释放额度断言 + 静态断言） |
+| P0-2 附带发现 | `loadCounters()` 对 text 列 `SUM()` → Postgres 报错，**门禁状态此前读不出来**，旧代码吞异常后仍会放行 → 已修（转 numeric）+ 回归测试 | `node -e` 实测修复前后对比 |
+| P0-3 状态漂移 | `txGateStatus()` 读持久化熔断状态（trippedAt/reason/clearedAt/clearedBy/stateSource），读取失败返回 `null` 而非 false | 实测：trip → 接口 `tripped=true` 且门禁以 `KILL_SWITCH` 拒绝；clear → 显示复核人/时间 |
+| P0-4 PM 身份 | 保持 `pending-official`；**未写 unlockRecord、未打开任何开关** | 测试断言：总开关关闭、unlockPath=null、全部 writeEnabled=false |
+
+测试：121 → **139/139**。
+
 ## 下一步（M3 预览）
 
 - 交易开关（官方确认 或 用户知情接受 + 首笔小额）

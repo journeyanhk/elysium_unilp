@@ -179,6 +179,19 @@ tx_audit     审计（intent_id、用户确认时间、签名者地址、交易�
 
 **测试总数**：104 → **121**。
 
+## 12. M3.2 阻塞项修复记录（回应 review P0-1 / P0-2 / P0-3）
+
+| P0 | 问题 | 处理 | 证据 |
+|---|---|---|---|
+| **P0-1** | 额度/频率「先读后判」存在并发绕过 | 新增 `tx_gate_buckets` 表 + `reserveQuota()`：**带条件的原子 UPDATE**（每分钟笔数 → 每日笔数 → 每日金额），失败回滚已占用桶；金额以「分」存整数 | `tests/tx-gate-concurrency.test.js`（真实 Postgres）：并发 5 请求 + 每分钟 1 笔 → **恰好 1 个通过**；5 × 1 USD + 日上限 3 USD → **恰好 3 个通过**（累计恰为 3 USD） |
+| **P0-2** | 审计写入失败不阻断放行 | `assertTxAllowed()` 改为 fail-closed（审计异常 → `GATE_AUDIT_FAILED`；状态读取异常 → `GATE_STATE_UNAVAILABLE`）；新增 `authorizeTx()`：判断 → 原子占用 → 审计，任一步失败即拒绝并释放额度 | `tests/tx-gate.test.js`：审计失败拒绝 + 额度已释放；额度存储不可用拒绝；源码静态断言「不得再吞异常」 |
+| **P0-3** | `/api/tx/gate` 熔断状态可能漂移 | `txGateStatus()` 改为异步并读**持久化**记录，返回 `killSwitchTripped/TrippedAt/Reason/ClearedAt/ClearedBy/stateSource`；读取失败返回 `null` + `stateUnavailable`（不谎报 false） | 实测：trip → 接口立即 `tripped=true` 且门禁以 `KILL_SWITCH` 拒绝；clear → 显示复核人与时间 |
+| **P0-4** | PM 官方身份未确认 | 保持 `pending-official`；**不写 unlockRecord、不打开任何开关**，等待最终开关评审与用户书面风险接受 | `tests/tx-gate.test.js`：总开关关闭、解锁路径为 null、全部 writeEnabled=false |
+
+**fail-closed 改造的额外收获**：立刻暴露出一个**真实缺陷** —— `loadCounters()` 对 `amount_usd`（text 列）直接 `SUM()`，Postgres 报 `function sum(text) does not exist`，即门禁状态此前**根本读不出来**；旧代码吞掉异常后会照常放行。已修复（`SUM(NULLIF(amount_usd,'')::numeric)`）并补真实数据库回归测试（`loadGateState` / `loadCounters` / `loadKillSwitch` 必须可用且返回数值）。
+
+**测试总数**：121 → **139**（新增 17 条：并发原子性 6、fail-closed 与状态持久化 11）。
+
 ## 9. 本阶段复核点（请 review）
 
 1. 门禁模型（双重门禁 + 解锁记录 + 熔断）是否足够；

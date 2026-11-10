@@ -7,17 +7,20 @@
  *   - evaluateTxRequest(req, state)  —— **纯函数**：所有限制的真实判断逻辑（可离线单测，覆盖每条边界）
  *   - assertTxAllowed(req, deps)     —— 异步门禁：从持久化状态（DB）读取计数与熔断状态后调用上面的纯函数
  *
- * review 要求（M3.0 → M3.2 前必须补齐）：
+ * review 要求（M3.2 前必须补齐）：
  *   [x] 强制检查 maxGasUsd
  *   [x] 强制检查 dailyMaxUsd
  *   [x] 强制检查每分钟 / 每日交易数
  *   [x] killSwitch 提供 trip() / clear()，clear 必须要求人工复核记录
  *   [x] 熔断状态持久化（由 lib/tx-gate-state.js 提供，非进程内存）
  *   [x] 真实 assertTxAllowed 的边界测试（tests/tx-gate.test.js 直接调用真实函数）
+ *   [x] 额度/频率为**原子占用**（条件 UPDATE + 行锁，见 lib/tx-gate-state.js reserveQuota；并发测试 tests/tx-gate-concurrency.test.js）
+ *   [x] 审计失败 → 门禁拒绝（fail-closed）：authorizeTx() 在审计写入失败时释放额度并拒绝
+ *   [x] txGateStatus() 读取**持久化**熔断状态，不再返回静态配置值
  */
 const { CONTRACTS, TOKENS } = require('./whitelist');
 
-const GATE_VERSION = 'M3-gate-2';
+const GATE_VERSION = 'M3-gate-3';
 
 const TX_GATE = {
   version: GATE_VERSION,
@@ -185,37 +188,125 @@ function evaluateTxRequest(req = {}, state = {}, config = TX_GATE) {
  * @param {{stateProvider?: Function, onDecision?: Function, config?: object}} deps
  *   config 仅供测试注入「已开启」的配置副本，业务代码不得传入（tests 中有静态断言防止路由滥用）
  */
+/** 构造门禁拒绝错误 */
+function _reject(decision) {
+  const e = new Error(`交易门禁拒绝：${decision.reason}`);
+  e.code = decision.code;
+  e.decision = decision;
+  return e;
+}
+
 async function assertTxAllowed(req = {}, deps = {}) {
+  const config = deps.config || TX_GATE;
   let state = { now: Math.floor(Date.now() / 1000) };
-  if (deps.stateProvider) {
-    state = { ...state, ...(await deps.stateProvider(req)) };
-  } else {
-    // 延迟加载：避免离线测试/纯配置场景被迫连库
-    const { loadGateState } = require('../lib/tx-gate-state');
-    state = { ...state, ...(await loadGateState()) };
+  try {
+    if (deps.stateProvider) {
+      state = { ...state, ...(await deps.stateProvider(req)) };
+    } else {
+      // 延迟加载：避免离线测试/纯配置场景被迫连库
+      const { loadGateState } = require('../lib/tx-gate-state');
+      state = { ...state, ...(await loadGateState()) };
+    }
+  } catch (e) {
+    // fail-closed：读不到持久化状态（熔断/计数）就绝不放行
+    throw _reject({ ok: false, code: 'GATE_STATE_UNAVAILABLE', reason: `无法读取持久化门禁状态，已拒绝：${e.message}` });
   }
-  const decision = evaluateTxRequest(req, state, deps.config || TX_GATE);
+  const decision = evaluateTxRequest(req, state, config);
   if (deps.onDecision) {
-    try { await deps.onDecision(req, decision); } catch { /* 记录失败不影响门禁判断 */ }
+    try {
+      await deps.onDecision(req, decision);
+    } catch (e) {
+      // fail-closed：审计写入失败不得放行（M3.2 review P0-2）
+      throw _reject({ ok: false, code: 'GATE_AUDIT_FAILED', reason: `门禁审计写入失败，已拒绝交易：${e.message}` });
+    }
   }
-  if (!decision.ok) {
-    const e = new Error(`交易门禁拒绝：${decision.reason}`);
-    e.code = decision.code;
-    e.decision = decision;
-    throw e;
-  }
+  if (!decision.ok) throw _reject(decision);
   return decision;
 }
 
-/** 供前端 / 只读接口使用的门禁状态（不含任何私密信息） */
-function txGateStatus() {
+/**
+ * 完整授权流程（真实交易入口**必须**走这里）：
+ *   门禁判断 → 原子占用额度 → 写审计；任一步失败 → 释放额度并拒绝。
+ * 保证不会出现「允许交易但没有审计记录」，也不会出现「额度被占用但交易未放行」。
+ *
+ * @param {object} req
+ * @param {{stateProvider?:Function, record?:Function, quotaStore?:object, config?:object, namespace?:string}} deps
+ */
+async function authorizeTx(req = {}, deps = {}) {
+  const config = deps.config || TX_GATE;
+  const { reserveQuota, releaseQuota, recordAttempt } = deps.quotaStore || require('../lib/tx-gate-state');
+  const record = deps.record || recordAttempt;
+
+  let state = { now: Math.floor(Date.now() / 1000) };
+  try {
+    state = deps.stateProvider
+      ? { ...state, ...(await deps.stateProvider(req)) }
+      : { ...state, ...(await require('../lib/tx-gate-state').loadGateState()) };
+  } catch (e) {
+    throw _reject({ ok: false, code: 'GATE_STATE_UNAVAILABLE', reason: `无法读取持久化门禁状态，已拒绝：${e.message}` });
+  }
+
+  const decision = evaluateTxRequest(req, state, config);
+  if (!decision.ok) {
+    // 被拒绝时也留审计（失败不影响拒绝结果，但绝不因此放行）
+    try { await record(req, decision); } catch { /* 拒绝路径不因审计失败而放行 */ }
+    throw _reject(decision);
+  }
+
+  // 1) 原子占用额度（并发下由条件 UPDATE 保证不超额）
+  let quota;
+  try {
+    quota = await reserveQuota({ amountUsd: req.amountUsd, config, namespace: deps.namespace || '' });
+  } catch (e) {
+    throw _reject({ ok: false, code: 'GATE_QUOTA_UNAVAILABLE', reason: `额度占用失败，已拒绝：${e.message}` });
+  }
+  if (!quota.ok) {
+    const d = { ok: false, code: quota.code, reason: quota.reason, gateVersion: GATE_VERSION };
+    try { await record(req, d); } catch { /* 同上 */ }
+    throw _reject(d);
+  }
+
+  // 2) 审计（fail-closed：写不进去 → 释放额度 + 拒绝）
+  try {
+    decision.attemptId = await record(req, decision);
+  } catch (e) {
+    try { await releaseQuota(quota.reservation); } catch { /* 补偿失败只会更保守（多算额度），不会放行 */ }
+    throw _reject({ ok: false, code: 'GATE_AUDIT_FAILED', reason: `门禁审计写入失败，已释放额度并拒绝：${e.message}` });
+  }
+
+  return { ...decision, reservation: quota.reservation, quota: quota.snapshot };
+}
+
+/**
+ * 供前端 / 只读接口使用的门禁状态（不含任何私密信息）。
+ * M3.2 review P0-3：熔断状态一律读**持久化**记录，绝不返回静态配置值。
+ */
+async function txGateStatus(deps = {}) {
+  let ks = null;
+  let stateSource = 'postgres';
+  let stateError = null;
+  try {
+    const loader = deps.loadKillSwitch || require('../lib/tx-gate-state').loadKillSwitch;
+    ks = await loader();
+  } catch (e) {
+    stateSource = 'unavailable';
+    stateError = String(e.message).slice(0, 200);
+  }
   return {
     version: GATE_VERSION,
     enabled: TX_GATE.enabled,
     stage: TX_GATE.stage,
     firstTxMode: TX_GATE.firstTxMode,
     unlockPath: TX_GATE.unlockRecord.path,
-    killSwitchTripped: TX_GATE.killSwitch.tripped,
+    // 熔断（来自持久化记录；读取失败时 tripped=null 并标记 stateUnavailable，绝不谎报 false）
+    killSwitchTripped: ks ? Boolean(ks.tripped) : null,
+    killSwitchTrippedAt: ks ? ks.trippedAt : null,
+    killSwitchReason: ks ? ks.reason : null,
+    killSwitchClearedAt: ks && ks.clearedAt ? ks.clearedAt : null,
+    killSwitchClearedBy: ks && ks.clearedBy ? ks.clearedBy : null,
+    stateSource,
+    stateUnavailable: stateSource === 'unavailable',
+    stateError,
     limits: TX_GATE.limits,
     allowedCalls: Object.fromEntries(
       Object.entries(TX_GATE.allowedCalls).map(([k, v]) => [k, { address: v.address, selectors: Object.values(v.selectors) }])
@@ -225,4 +316,4 @@ function txGateStatus() {
   };
 }
 
-module.exports = { TX_GATE, GATE_VERSION, evaluateTxRequest, assertTxAllowed, txGateStatus };
+module.exports = { TX_GATE, GATE_VERSION, evaluateTxRequest, assertTxAllowed, authorizeTx, txGateStatus };

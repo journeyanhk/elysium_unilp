@@ -18,6 +18,8 @@ function ensureIndexes() {
       await dbQuery('CREATE UNIQUE INDEX IF NOT EXISTS liquidity_events_uniq ON liquidity_events (chain_id, tx_hash, log_index)');
       await dbQuery('CREATE UNIQUE INDEX IF NOT EXISTS block_prices_uniq ON block_prices (chain_id, block_number)');
       await dbQuery('CREATE UNIQUE INDEX IF NOT EXISTS block_times_uniq ON block_times (chain_id, block_number)');
+      // M3.2：门禁额度桶唯一索引（并发原子占用依赖 ON CONFLICT / 条件 UPDATE）
+      await dbQuery('CREATE UNIQUE INDEX IF NOT EXISTS tx_gate_buckets_key_uniq ON tx_gate_buckets (bucket_key)');
     })().catch((e) => {
       done = null; // 允许重试
       throw e;

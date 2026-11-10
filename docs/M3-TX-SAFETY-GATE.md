@@ -1,6 +1,6 @@
 # M3 小额交易安全门禁（Transaction Safety Gate）
 
-> 版本：`M3-gate-2`（2026-11-10，M3.1 补齐执行逻辑）｜ 代码：`backend/config/tx-gate.js` + `backend/lib/tx-gate-state.js` + `backend/lib/tx-parse.js`｜ 测试：`tests/tx-gate.test.js`、`tests/tx-parse.test.js`、`tests/tx-rpc-guard.test.js`、`tests/tx-build.test.js`（全部通过）
+> 版本：`M3-gate-3`（2026-11-10，M3.2 补齐原子额度、fail-closed 审计与持久化状态）｜ 代码：`backend/config/tx-gate.js` + `backend/lib/tx-gate-state.js` + `backend/lib/tx-parse.js`｜ 测试：`tests/tx-gate.test.js`、`tests/tx-parse.test.js`、`tests/tx-rpc-guard.test.js`、`tests/tx-build.test.js`（全部通过）
 >
 > **当前状态：全部关闭。** 未经下一轮 review，不得打开真实交易、签名、Approve、Permit2、mint、burn、collect 或 `modifyLiquidities`。
 
@@ -71,6 +71,34 @@
 | Gas 单价 **与总成本** | 同时校验 `maxGasPriceGwei` 与 `maxGasUsd`；**缺少 Gas 成本估算直接拒绝** |
 | 滑点 / minOut / 报价新鲜度 / 价格影响 / deadline | 逐项强制，无自动放宽分支 |
 | 熔断 | `lib/tx-gate-state.js`（Postgres，append-only）：`trip` 需原因，`clear` **必须**提供人工复核记录与操作人；`storeKind` 固定 `postgres`，测试禁止内存实现 |
+
+## 4.1.1 原子额度占用（M3.2 review P0-1）
+
+「先读计数 → 判断 → 再记录」在并发下会被绕过（两个请求都读到 0 笔，都通过）。现在改为**带条件的原子 UPDATE**：
+
+```sql
+UPDATE tx_gate_buckets SET tx_count = tx_count + 1
+ WHERE bucket_key = 'minute:…' AND tx_count < 每分钟上限 RETURNING tx_count;
+```
+
+- 占用顺序：每分钟笔数 → 每日笔数 → 每日金额；任一步不满足即拒绝，并**回滚**已占用的桶；
+- 行锁 + 条件重判保证并发下不会超额；补偿只可能「多算」额度（更保守），**不会少算**（不会放行）；
+- 金额以「分」存整数（`amount_cents`），避免浮点误差；
+- 并发测试（真实 Postgres，`tests/tx-gate-concurrency.test.js`）：5 个并发请求 + 每分钟上限 1 → 恰好 1 个通过；5 × 1 USD + 日上限 3 USD → 恰好 3 个通过，日累计恰好 3 USD。
+
+## 4.1.2 审计 fail-closed（M3.2 review P0-2）
+
+真实交易入口必须调用 `authorizeTx()`：**门禁判断 → 原子占用额度 → 写审计**，任一步失败即拒绝并释放额度。
+
+- 审计写入失败 → 释放额度 + 拒绝（`GATE_AUDIT_FAILED`）；**绝不出现「允许交易但没有审计记录」**；
+- 持久化状态读取失败 → 拒绝（`GATE_STATE_UNAVAILABLE`）；额度存储不可用 → 拒绝（`GATE_QUOTA_UNAVAILABLE`）；
+- 该 fail-closed 改造**立即暴露出一个真实缺陷**：`loadCounters()` 对 `amount_usd`（text 列）直接 `SUM()`，Postgres 报 `function sum(text) does not exist` —— 即此前门禁状态**根本读不出来**，而旧代码把异常吞掉后会照常放行。现已改为 `SUM(NULLIF(amount_usd,'')::numeric)` 并补回归测试。
+
+## 4.1.3 熔断状态不得漂移（M3.2 review P0-3）
+
+`GET /api/tx/gate` 的熔断字段一律读**持久化记录**，不再返回静态配置值，返回：`killSwitchTripped` / `killSwitchTrippedAt` / `killSwitchReason` / `killSwitchClearedAt` / `killSwitchClearedBy` / `stateSource`。
+
+持久化读取失败时返回 `killSwitchTripped: null` + `stateUnavailable: true`（**绝不谎报 false**）。实测：触发熔断 → 接口立即显示 `tripped=true` 且门禁以 `KILL_SWITCH` 拒绝；人工复核清除 → 显示 `clearedAt` / `clearedBy`。
 
 ## 4.2 参数级白名单（三层：合约 → selector → calldata 语义）
 

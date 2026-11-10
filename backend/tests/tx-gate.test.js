@@ -9,7 +9,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 
-const { TX_GATE, assertTxAllowed, evaluateTxRequest, txGateStatus } = require('../config/tx-gate');
+const { TX_GATE, assertTxAllowed, authorizeTx, evaluateTxRequest, txGateStatus } = require('../config/tx-gate');
 const { CONTRACTS, TOKENS, POOLS } = require('../config/whitelist');
 const { assertWriteEnabled, isWriteEnabled } = require('../lib/tx-guard');
 const gateState = require('../lib/tx-gate-state');
@@ -38,9 +38,11 @@ const baseReq = {
 
 // ---------- 关闭状态 ----------
 
-test('总开关必须关闭（M3 review 通过前不得打开）', () => {
+test('总开关必须关闭（M3 review 通过前不得打开）', async () => {
   assert.equal(TX_GATE.enabled, false, '交易总开关被打开了：必须先通过 review 并记录解锁路径');
-  assert.equal(txGateStatus().enabled, false);
+  const st = await txGateStatus({ loadKillSwitch: async () => ({ tripped: false }) });
+  assert.equal(st.enabled, false);
+  assert.equal(st.unlockPath, null, '解锁路径必须为 null');
   assert.equal(TX_GATE.firstTxMode, true, '首笔小额模式必须保持开启');
   assert.equal(TX_GATE.unlockRecord.path, null, '不得在未经 review 的情况下写入解锁记录');
 });
@@ -265,4 +267,127 @@ test('前端运行时拦截器必须保持关闭', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', '..', 'frontend', 'src', 'lib', 'tx-guard.ts'), 'utf8');
   assert.match(src, /export const WRITES_ENABLED = false/, '前端 WRITES_ENABLED 被打开');
   assert.match(src, /assertWritesEnabled\(\): never/, '前端拦截器签名被改动');
+});
+
+// ---------- M3.2 review P0-2：审计失败必须 fail-closed ----------
+
+test('审计写入失败 → 门禁拒绝（fail-closed，不再吞掉异常）', async () => {
+  await assert.rejects(
+    () => assertTxAllowed(baseReq, {
+      stateProvider: async () => ({ dailyUsd: 0, txCountLastMinute: 0, txCountToday: 0 }),
+      config: unlockedConfig(),
+      onDecision: async () => { throw new Error('审计表写入失败'); },
+    }),
+    (e) => e.code === 'GATE_AUDIT_FAILED' && /已拒绝/.test(e.message)
+  );
+});
+
+test('持久化状态读取失败 → 门禁拒绝（GATE_STATE_UNAVAILABLE）', async () => {
+  await assert.rejects(
+    () => assertTxAllowed(baseReq, { stateProvider: async () => { throw new Error('DB 不可用'); }, config: unlockedConfig() }),
+    (e) => e.code === 'GATE_STATE_UNAVAILABLE'
+  );
+});
+
+test('authorizeTx：审计写入失败 → 拒绝，且额度被释放（不会出现「允许但无审计」）', async () => {
+  const calls = [];
+  const quotaStore = {
+    reserveQuota: async () => { calls.push('reserve'); return { ok: true, reservation: { namespace: '', cents: 500 }, snapshot: { minuteCount: 1, dayCount: 1, dayAmountUsd: 5 } }; },
+    releaseQuota: async () => { calls.push('release'); return true; },
+    recordAttempt: async () => 1,
+  };
+  await assert.rejects(
+    () => authorizeTx(baseReq, {
+      stateProvider: async () => ({ dailyUsd: 0, txCountLastMinute: 0, txCountToday: 0 }),
+      config: unlockedConfig(), quotaStore,
+      record: async () => { throw new Error('审计表写入失败'); },
+    }),
+    (e) => e.code === 'GATE_AUDIT_FAILED'
+  );
+  assert.deepEqual(calls, ['reserve', 'release'], '必须先占用额度，审计失败后释放');
+});
+
+test('authorizeTx：成功路径返回额度快照与审计 id', async () => {
+  const quotaStore = {
+    reserveQuota: async () => ({ ok: true, reservation: { namespace: '', cents: 500 }, snapshot: { minuteCount: 1, dayCount: 1, dayAmountUsd: 5 } }),
+    releaseQuota: async () => true,
+    recordAttempt: async () => 7,
+  };
+  const out = await authorizeTx(baseReq, {
+    stateProvider: async () => ({ dailyUsd: 0, txCountLastMinute: 0, txCountToday: 0 }),
+    config: unlockedConfig(), quotaStore, record: async () => 7,
+  });
+  assert.equal(out.ok, true);
+  assert.equal(out.attemptId, 7);
+  assert.equal(out.quota.dayAmountUsd, 5);
+});
+
+test('authorizeTx：额度占用被原子拒绝 → 抛出门禁拒绝（含原子拒绝原因）', async () => {
+  const quotaStore = {
+    reserveQuota: async () => ({ ok: false, code: 'RATE_PER_MINUTE', reason: '最近一分钟已达上限 1 笔（原子占用拒绝）' }),
+    releaseQuota: async () => true,
+    recordAttempt: async () => 1,
+  };
+  await assert.rejects(
+    () => authorizeTx(baseReq, {
+      stateProvider: async () => ({ dailyUsd: 0, txCountLastMinute: 0, txCountToday: 0 }),
+      config: unlockedConfig(), quotaStore, record: async () => 1,
+    }),
+    (e) => e.code === 'RATE_PER_MINUTE'
+  );
+});
+
+test('authorizeTx：额度存储不可用 → 拒绝（不放行）', async () => {
+  const quotaStore = { reserveQuota: async () => { throw new Error('DB 不可用'); }, releaseQuota: async () => true, recordAttempt: async () => 1 };
+  await assert.rejects(
+    () => authorizeTx(baseReq, {
+      stateProvider: async () => ({ dailyUsd: 0, txCountLastMinute: 0, txCountToday: 0 }),
+      config: unlockedConfig(), quotaStore, record: async () => 1,
+    }),
+    (e) => e.code === 'GATE_QUOTA_UNAVAILABLE'
+  );
+});
+
+test('源码静态检查：门禁不得再吞掉审计异常；真实交易入口使用 authorizeTx', () => {
+  const gateSrc = fs.readFileSync(path.join(__dirname, '..', 'config', 'tx-gate.js'), 'utf8');
+  assert.ok(!/记录失败不影响门禁判断/.test(gateSrc), '不得再出现「记录失败不影响门禁判断」的吞异常写法');
+  assert.ok(/GATE_AUDIT_FAILED/.test(gateSrc), '必须存在审计失败的拒绝码');
+  assert.ok(/GATE_STATE_UNAVAILABLE/.test(gateSrc), '必须存在状态不可用的拒绝码');
+  assert.ok(/async function authorizeTx/.test(gateSrc), '必须提供 authorizeTx（判断+额度+审计一体化）');
+  assert.ok(/reserveQuota/.test(gateSrc), 'authorizeTx 必须使用原子额度占用');
+});
+
+// ---------- M3.2 review P0-3：门禁状态必须来自持久化 ----------
+
+test('txGateStatus：熔断状态来自持久化记录（不返回静态配置值）', async () => {
+  const persistedTrip = { tripped: true, trippedAt: '2026-11-10T01:02:03Z', reason: '模拟结果与链上不一致' };
+  const st = await txGateStatus({ loadKillSwitch: async () => persistedTrip });
+  assert.equal(st.killSwitchTripped, true, '必须反映持久化熔断状态');
+  assert.equal(st.killSwitchReason, persistedTrip.reason);
+  assert.equal(st.killSwitchTrippedAt, persistedTrip.trippedAt);
+  assert.equal(st.stateSource, 'postgres');
+  assert.equal(st.stateUnavailable, false);
+  // 静态配置里是 false，说明没有使用静态值
+  assert.equal(TX_GATE.killSwitch.tripped, false);
+});
+
+test('txGateStatus：清除后的持久化状态一并返回（clearedAt / clearedBy）', async () => {
+  const st = await txGateStatus({ loadKillSwitch: async () => ({ tripped: false, clearedAt: '2026-11-10T02:00:00Z', clearedBy: 'reviewer', reviewNote: '人工复核通过' }) });
+  assert.equal(st.killSwitchTripped, false);
+  assert.equal(st.killSwitchClearedAt, '2026-11-10T02:00:00Z');
+  assert.equal(st.killSwitchClearedBy, 'reviewer');
+});
+
+test('txGateStatus：持久化读取失败 → 明确标记不可用（不得谎报 false）', async () => {
+  const st = await txGateStatus({ loadKillSwitch: async () => { throw new Error('DB 不可用'); } });
+  assert.equal(st.killSwitchTripped, null, '读取失败时不得返回 false');
+  assert.equal(st.stateUnavailable, true);
+  assert.equal(st.stateSource, 'unavailable');
+  assert.match(st.stateError, /DB 不可用/);
+});
+
+test('路由静态检查：GET /api/tx/gate 使用 await txGateStatus()（异步持久化状态）', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'tx.js'), 'utf8');
+  assert.match(src, /await txGateStatus\(\)/, '必须 await 异步状态接口');
+  assert.ok(!/[^t]txGateStatus\(\)\)/.test(src.replace(/await txGateStatus\(\)/g, '')), '不得存在未 await 的调用');
 });

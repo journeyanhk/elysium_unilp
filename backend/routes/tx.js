@@ -27,9 +27,9 @@ function safeJson(obj) {
 router.get('/gate', async (_req, res) => {
   try {
     const state = await loadGateState();
-    res.json({ gate: txGateStatus(), state });
+    res.json({ gate: await txGateStatus(), state });
   } catch (e) {
-    res.json({ gate: txGateStatus(), state: null, stateError: String(e.message).slice(0, 200) });
+    res.json({ gate: await txGateStatus(), state: null, stateError: String(e.message).slice(0, 200) });
   }
 });
 
