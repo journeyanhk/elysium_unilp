@@ -9,6 +9,7 @@ import PositionCard from './components/PositionCard'
 import SimulatorPanel from './components/SimulatorPanel'
 import WhitelistPanel from './components/WhitelistPanel'
 import MemoryPanel from './components/MemoryPanel'
+import SignBroadcastPanel from './components/SignBroadcastPanel'
 import { fmtTime, shortAddr, timeAgo } from './lib/format'
 
 const j = (r: Response) => r.json()
@@ -104,10 +105,10 @@ function Dashboard() {
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-lg font-semibold">KNTQ/HYPE LP 管理器</h1>
-            <p className="text-[11px] text-zinc-500">Elysium · 只读看板（M1）· 数据：链上 RPC / Surf / DexScreener</p>
+            <p className="text-[11px] text-zinc-500">Elysium · 只读看板 + M3.3 手动签名与广播（门禁关闭）· 数据：链上 RPC / Surf / DexScreener</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-[11px]">
-            <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">M1 只读 · 不请求任何签名</span>
+            <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-emerald-300">只读看板 · 交易门禁关闭（不会请求签名）</span>
             {positionsQ.data && (
               <span className="rounded-full border border-zinc-700 px-2 py-1 text-zinc-400">
                 RPC {positionsQ.data.rpc.active.replace('https://', '')} · {positionsQ.data.rpc.endpoints[0]?.latencyMs ?? '—'}ms
@@ -234,10 +235,12 @@ function Dashboard() {
           focusSeq={focus.seq}
         />
 
+        <SignBroadcastPanel address={address} chainId={walletChainId} />
+
         {wlQ.data && <WhitelistPanel data={wlQ.data} />}
         {memQ.data && <MemoryPanel data={memQ.data} />}
         <footer className="pb-8 text-[11px] leading-5 text-zinc-600">
-          安全说明：M1 只读模式——连接钱包仅用于读取地址；所有链上数据由后端只读 RPC 获取，不会请求任何签名（Approve / Permit2 / 组池 / 领费 / 撤池均在 M3 交易开关后开放）。
+          安全说明：连接钱包仅用于读取地址；所有链上数据由后端只读 RPC 获取。M3.3 手动签名与广播路径已实现，但**交易门禁当前关闭**——不会授权、不会请求签名、不会广播（Approve / Permit2 / 组池 / 领费 / 撤池均需门禁解锁 + 用户本人书面风险接受）。
           合约身份：PoolManager 与官方构建逐字节一致；PositionManager 接口面一致、实现等价性待 M2 验证；官方归属待确认。详见「核验与设置」。
         </footer>
       </div>

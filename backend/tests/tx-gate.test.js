@@ -226,37 +226,54 @@ test('禁止能力清单覆盖 review 关注项', () => {
 
 // ---------- 代码层静态检查（验收条件 1 / 2 / 8） ----------
 
-test('后端不存在发送交易或签名的方法调用（静态扫描）', () => {
+test('后端唯一允许的写方法是 eth_sendRawTransaction，且只存在于广播模块（静态扫描）', () => {
   const root = path.join(__dirname, '..');
-  const forbiddenPatterns = [
-    /eth_sendRawTransaction/, /eth_sendTransaction/, /eth_signTransaction/,
-    /personal_sign/, /eth_signTypedData/, /wallet_sendCalls/, /wallet_signTransaction/,
+  // 任何产品代码都不得出现的签名/钱包方法（M3.3 之后仍然禁止：不托管私钥、不代替签名）
+  const signingPatterns = [
+    /eth_signTransaction/, /personal_sign/, /eth_signTypedData/, /wallet_sendCalls/, /wallet_signTransaction/,
+    /eth_sendTransaction/, /privateKeyToAccount/, /mnemonicToAccount/,
   ];
-  const allowlistFile = path.join(root, 'lib', 'tx-rpc-guard.js'); // 白名单定义本身
+  // 唯一允许的写方法：只允许出现在广播模块与其白名单定义处
+  const writeMethod = /eth_sendRawTransaction/;
+  const writeAllowed = new Set([
+    path.join(root, 'lib', 'tx-rpc-guard.js'), // 只读护栏里的「禁止清单」定义
+    path.join(root, 'lib', 'tx-broadcast.js'), // M3.3 唯一写路径（单次、不重试）
+  ]);
+  const guardFile = path.join(root, 'lib', 'tx-rpc-guard.js'); // 该文件本身就是「禁止清单」的定义处
+  const offenders = [];
   const scan = (dir) => {
     for (const f of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, f.name);
       if (f.isDirectory()) { if (!['node_modules', 'tests', 'reference', '.git'].includes(f.name)) scan(full); continue; }
-      if (!f.name.endsWith('.js') || full === allowlistFile) continue;
+      if (!f.name.endsWith('.js')) continue;
       const src = fs.readFileSync(full, 'utf8');
-      for (const re of forbiddenPatterns) {
-        assert.ok(!re.test(src), `${full} 出现禁止的 RPC/签名方法：${re}`);
-      }
+      if (full !== guardFile) for (const re of signingPatterns) if (re.test(src)) offenders.push(`${full} → ${re}`);
+      if (writeMethod.test(src) && !writeAllowed.has(full)) offenders.push(`${full} → ${writeMethod}`);
     }
   };
   scan(root);
+  assert.deepEqual(offenders, [], `产品代码不得包含签名方法；写方法只能出现在广播模块：\n${offenders.join('\n')}`);
+  // 路由层不得直接出现写方法名（必须经由 lib/tx-broadcast.js）
+  const routeSrc = fs.readFileSync(path.join(root, 'routes', 'tx.js'), 'utf8');
+  assert.ok(!writeMethod.test(routeSrc), 'routes/tx.js 不得直接调用写方法，必须经由 lib/tx-broadcast.js');
+  assert.match(routeSrc, /require\('\.\.\/lib\/tx-broadcast'\)/, '广播必须经由 lib/tx-broadcast.js');
 });
 
-test('广播入口不存在可用路径：routes/tx.js 的 /broadcast 恒定返回门禁拒绝', () => {
+test('门禁关闭时广播不存在可用路径：/broadcast 恒被拒绝，且发送必须晚于门禁预检', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'tx.js'), 'utf8');
   const idx = src.indexOf("'/broadcast'");
   assert.ok(idx > 0, '未找到 /broadcast 路由');
-  const handler = src.slice(idx, idx + 1200);
-  assert.match(handler, /status\(403\)/, '/broadcast 必须以 403 拒绝');
-  assert.match(handler, /evaluateTxRequest|assertTxAllowed/, '/broadcast 必须经过门禁判断');
-  for (const bad of [/sendTransaction/, /sendRawTransaction/, /writeContract/, /signTransaction/]) {
-    assert.ok(!bad.test(src), `routes/tx.js 出现禁止调用：${bad}`);
-  }
+  const handler = src.slice(idx, idx + 9000);
+  assert.match(handler, /preflightBroadcast\(/, '/broadcast 必须做广播前置检查');
+  assert.match(handler, /status\(403\)/, '/broadcast 必须以 403 拒绝（门禁关闭时）');
+  const iPre = handler.indexOf('preflightBroadcast(');
+  const iSend = handler.indexOf('sendRawTransactionOnce(');
+  assert.ok(iPre > 0 && iSend > iPre, '发送必须晚于广播前置检查');
+  // 门禁配置本身必须保持关闭（M3.3 实现完成后仍不解锁）
+  const { TX_GATE } = require('../config/tx-gate');
+  assert.equal(TX_GATE.enabled, false, 'TX_GATE.enabled 必须保持 false');
+  assert.equal(TX_GATE.unlockRecord.path, null, '不得存在解锁记录');
+  for (const [k, v] of Object.entries(TX_GATE.allowedCalls)) assert.equal(v.writeEnabled, false, `${k} 的 writeEnabled 必须保持 false`);
 });
 
 test('业务路由不得注入门禁配置覆盖（config 参数仅供测试）', () => {

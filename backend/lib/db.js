@@ -50,6 +50,9 @@ function ensureIndexes() {
       await dbQuery('ALTER TABLE tx_gate_attempts ADD COLUMN IF NOT EXISTS consumed_at timestamptz');
       await dbQuery('ALTER TABLE tx_gate_attempts ADD COLUMN IF NOT EXISTS consumed_by text');
       await dbQuery('ALTER TABLE tx_simulations ADD COLUMN IF NOT EXISTS sim_result_hash text');
+      // M3.3：广播记录索引（同一 intent 的广播可按时间检索；tx_hash 唯一）
+      await dbQuery('CREATE INDEX IF NOT EXISTS tx_broadcasts_intent_idx ON tx_broadcasts (chain_id, intent_id)');
+      await dbQuery('CREATE UNIQUE INDEX IF NOT EXISTS tx_broadcasts_txhash_uniq ON tx_broadcasts (tx_hash)');
     })().catch((e) => {
       done = null; // 允许重试
       throw e;

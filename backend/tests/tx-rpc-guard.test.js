@@ -65,14 +65,25 @@ test('guardedRpc 在发出网络请求之前就拒绝（用不存在的 URL 也�
 });
 
 test('预演模块与构造模块不含发送/签名调用（静态扫描）', () => {
-  const files = ['lib/tx-simulate.js', 'lib/tx-build.js', 'lib/tx-parse.js', 'routes/tx.js'];
+  // 只读预演与构造模块：不得出现任何发送/签名相关内容
+  const files = ['lib/tx-simulate.js', 'lib/tx-build.js', 'lib/tx-parse.js', 'lib/tx-wallet-tx.js'];
   const root = path.join(__dirname, '..');
   for (const f of files) {
     const src = fs.readFileSync(path.join(root, f), 'utf8');
-    for (const bad of [/sendRawTransaction/, /sendTransaction/, /personal_sign/, /signTypedData/, /writeContract/, /signTransaction/, /privateKey/, /mnemonic/]) {
+    for (const bad of [/sendRawTransaction/, /sendTransaction/, /personal_sign/, /signTypedData/, /writeContract/, /signTransaction\(/, /privateKeyToAccount/, /mnemonic/]) {
       assert.ok(!bad.test(src), `${f} 出现禁止内容：${bad}`);
     }
   }
+  // 路由层：不得直接调用写方法（只能通过 lib/tx-broadcast.js 的单次广播函数）
+  const routeSrc = fs.readFileSync(path.join(root, 'routes', 'tx.js'), 'utf8');
+  assert.ok(!/eth_sendRawTransaction/.test(routeSrc), 'routes/tx.js 不得直接出现写方法名');
+  for (const bad of [/personal_sign/, /signTypedData/, /signTransaction\(/, /privateKeyToAccount/, /mnemonic/]) {
+    assert.ok(!bad.test(routeSrc), `routes/tx.js 出现禁止内容：${bad}`);
+  }
+  // 唯一写路径必须自带「不重试」说明与单次调用
+  const bcSrc = fs.readFileSync(path.join(root, 'lib', 'tx-broadcast.js'), 'utf8');
+  assert.match(bcSrc, /sendRawTransactionOnce/);
+  assert.ok(!/retries/.test(bcSrc.slice(bcSrc.indexOf('async function sendRawTransactionOnce'), bcSrc.indexOf('/** 读取链上交易（只读） */'))), '广播函数不得带重试参数');
 });
 
 test('tx-simulate 的 RPC 调用全部经过护栏', () => {

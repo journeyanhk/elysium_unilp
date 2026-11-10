@@ -223,6 +223,31 @@ tx_audit     审计（intent_id、用户确认时间、签名者地址、交易�
 
 **测试总数**：167 → **187**。门禁版本仍为 `M3-gate-4`（新增 `limits.simMaxAgeSec`）。
 
+## 16. M3.3 手动签名与广播实现（2026-11-10）
+
+**范围**：按 review 给出的 11 项交易路径要求实现，**保持所有开关关闭**（`TX_GATE.enabled=false`、`unlockRecord.path=null`、所有 `writeEnabled=false`），完成后再进行一次独立的 M3.3 review。
+
+| 文件 | 作用 |
+|---|---|
+| `lib/tx-wallet-tx.js` | 已签名交易 / 链上交易 与授权绑定的逐字段比对（chainId / to / value / calldataHash / selector / 发送方 / Gas 价格上限）+ 回执摘要与核对 |
+| `lib/tx-broadcast.js` | 广播前置检查（纯函数，13 个拒绝码）、**单次**广播（无重试/无替换/无加速/无手工 nonce）、链上交易读取、回执轮询、失败分类（哪些必须熔断） |
+| `routes/tx.js` | 新增 `POST /authorize`（门禁先行 → 权威记录重建 → authorizeTx）、`POST /broadcast`（预检 → 内容核对 → 单次广播 → 记录 → 失败熔断）、`POST /receipt`（只读回执轮询 + 核对 + 熔断 + 审计）、`GET /broadcasts/:intentId` |
+| `db/schema.js` | 新增 `tx_broadcasts`（广播与回执记录；只存 rawTx 指纹，不保存原始签名数据） |
+| `frontend/src/lib/tx-sign.ts` | 前端签名硬拦截：每次调用前检查 门禁 / 解锁记录 / 熔断 / 授权已消费；两种手动方式（只签名 / 钱包内广播） |
+| `frontend/src/components/SignBroadcastPanel.tsx` | 七步手动流程面板（构造 → 预演 → 授权 → 核对 → 消费 → 签名/广播 → 回执）；门禁关闭时全部禁用并说明原因 |
+| `config/tx-gate.js` | 新增 `limits.broadcastConsumeMaxAgeSec=180` 与 `broadcast` 声明段（两种方式 / 硬失败清单 / 无自动化清单） |
+
+**关键约束**：
+- 广播前置条件：门禁开启 + 解锁记录 + 熔断未触发（未知 = 拒绝）+ 授权**已一次性消费**（且消费时间在 180s 内）+ 绑定哈希一致 + 方式合法；
+- 内容核对：发送前（签名交易）或事后（钱包自行广播）都必须与授权绑定逐字段一致，不一致 → **熔断**；
+- 广播为**单次调用**：无循环、无 `retries`、无 `nonce` 处理（静态断言保证），RPC 超时按「结果未知」→ 熔断 + 人工确认，**禁止自动重发**；
+- 同一 intent 只允许一笔广播（`ALREADY_BROADCAST`）；
+- 路由层不得注入自定义门禁配置（静态断言），因此「开闸后的路由行为」只能由模块级测试覆盖。
+
+**测试**：187 → **210**（新增 `tests/tx-broadcast.test.js` 23 条；3 条旧静态断言按新架构重写为「唯一写路径 + 仅单次广播」）。
+
+**实测（门禁关闭）**：`/authorize` → 403 `GATE_CLOSED`；`/broadcast`（两种方式 + 非法方式）→ 403 `GATE_CLOSED`；`/receipt` → 404；`/broadcasts` → 空；熔断仍为未触发；拒绝均有审计记录。
+
 ## 9. 本阶段复核点（请 review）
 
 1. 门禁模型（双重门禁 + 解锁记录 + 熔断）是否足够；

@@ -20,7 +20,14 @@ const { decodeForCheck } = require('../lib/tx-parse');
 const { simResultHashOf, buildPreSignCurrent } = require('../lib/tx-presign');
 const { loadLatestSimulation, loadConsumedAuthorization, consumeAuthorization } = require('../lib/tx-gate-state');
 const { whitelistKeyOf } = require('../lib/tx-build');
-const { TX_GATE, assertTxAllowed, txGateStatus, evaluateTxRequest } = require('../config/tx-gate');
+const { TX_GATE, assertTxAllowed, txGateStatus, evaluateTxRequest, authorizeTx } = require('../config/tx-gate');
+const { CHAIN } = require('../config/whitelist');
+const {
+  preflightBroadcast, checkExistingBroadcast, sendRawTransactionOnce, fetchTxByHash, fetchReceipt,
+  evaluateReceipt, classifyBroadcastFailure, rawTxFingerprint, verifyRawTxAgainstBinding, verifyOnChainTxAgainstBinding,
+} = require('../lib/tx-broadcast');
+const { computeBinding, bindingHashOf } = require('../lib/tx-binding');
+const { tripKillSwitch } = require('../lib/tx-gate-state');
 const { recordAttempt, loadGateState } = require('../lib/tx-gate-state');
 const simulator = require('../lib/simulator');
 const { getPrices } = require('../lib/prices');
@@ -329,23 +336,274 @@ router.post('/consume-authorization', async (req, res) => {
 });
 
 /**
- * 广播入口：M3.3 前**恒定返回门禁拒绝**。
- * 即使有人绕过前端直接调用，也只会得到拒绝原因；此处没有任何发送交易的代码路径。
+ * 授权（M3.3 步骤：authorize 该具体 calldata）：
+ *   用权威记录重建当前交易 → 走完整门禁（判断 → 原子占用额度 → 审计）。
+ *   门禁关闭时本接口恒返回 403（当前状态）。
+ *   注意：本路由**不得**注入自定义 config（有静态断言防止用「已开启副本」绕过门禁）。
+ */
+router.post('/authorize', async (req, res) => {
+  try {
+    const { intentId, calldata, to, value = '0', chainId = null, slippageBps = null, hasMinOut = true } = req.body || {};
+    if (!intentId) return res.status(400).json({ error: '缺少 intentId' });
+
+    // 门禁总闸先行：关闭状态直接拒绝（不进入任何构造/授权流程）
+    const gateNow = await txGateStatus();
+    if (!gateNow.enabled) {
+      return res.status(403).json({ ok: false, code: 'GATE_CLOSED', reason: `交易总开关关闭（${gateNow.version}）——授权功能未解锁`, gate: gateNow, notes: ['门禁关闭：未产生任何授权'] });
+    }
+    if (!gateNow.unlockPath) {
+      return res.status(403).json({ ok: false, code: 'NO_UNLOCK_RECORD', reason: '缺少解锁记录（官方确认或用户知情接受），拒绝授权', gate: gateNow });
+    }
+    const { rows } = await dbQuery('SELECT * FROM tx_intents WHERE id = $1', [intentId]);
+    if (!rows.length) return res.status(404).json({ error: `intent ${intentId} 不存在` });
+    const it = rows[0];
+
+    const params = it.params ? JSON.parse(it.params) : {};
+    const key = it.key || whitelistKeyOf(it.target_contract);
+    let decoded = null;
+    try {
+      decoded = decodeForCheck({ calldata: calldata || it.calldata, key, intent: { type: it.intent_type, params } });
+    } catch (e) {
+      return res.status(400).json({ ok: false, error: `calldata 解码失败，拒绝授权：${String(e.message).slice(0, 300)}` });
+    }
+
+    const simulation = await loadLatestSimulation({ intentId });
+    const built = buildPreSignCurrent({
+      intent: { ...it, key }, simulation, request: { calldata: calldata || it.calldata, to: to || it.target_contract, value, chainId },
+      decoded, simMaxAgeSec: TX_GATE.limits.simMaxAgeSec,
+    });
+    if (!built.ok) return res.status(409).json({ ok: false, reason: built.reason });
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const quoteSnapshot = it.quote_snapshot ? JSON.parse(it.quote_snapshot) : null;
+    const quoteAgeSec = quoteSnapshot && quoteSnapshot.at ? Math.max(0, nowSec - Math.floor(new Date(quoteSnapshot.at).getTime() / 1000)) : null;
+
+    let decision;
+    try {
+      decision = await authorizeTx({
+        key, selector: it.selector, intentType: it.intent_type, intentId: Number(intentId),
+        amountUsd: it.amount_usd != null ? Number(it.amount_usd) : null, user: it.user_addr,
+        chainId: CHAIN.id, to: it.target_contract, value: String(value || '0'), calldataHash: it.calldata_hash,
+        deadline: built.current.deadline, minOut: built.current.minOut,
+        quoteBlock: built.current.quoteBlock, simBlock: built.current.simBlock,
+        simBlockHash: built.current.simBlockHash, simResultHash: built.current.simResultHash,
+        actions: built.current.actions, poolId: built.current.poolId,
+        slippageBps, hasMinOut: hasMinOut === true, gasPriceGwei: simulation.gasPriceGwei,
+        gasUsd: simulation.gasUsd, quoteAgeSec, priceImpactPct: null,
+      });
+    } catch (e) {
+      const d = e.decision || { ok: false, code: e.code || 'AUTHORIZE_FAILED', reason: String(e.message) };
+      return res.status(403).json({ ok: false, code: d.code, reason: d.reason, gate: await txGateStatus(), notes: ['门禁拒绝即未授权；不得签名、不得广播'] });
+    }
+
+    res.json(safeJson({
+      ok: true, authorizationId: decision.attemptId, bindingHash: decision.bindingHash, binding: decision.binding,
+      quota: decision.quota, gateVersion: decision.gateVersion,
+      notes: ['已授权：授权绑定这份完整交易内容', '授权必须一次性消费后才能广播'],
+    }));
+  } catch (e) {
+    res.status(400).json({ error: String(e.message).slice(0, 400) });
+  }
+});
+
+/**
+ * 广播（M3.3）—— 唯一的写路径，且必须满足全部前置条件：
+ *   门禁开启 + 解锁记录 + 熔断未触发 + 授权**已一次性消费**（且未超时）+ 内容与绑定一致。
+ *   方式一 wallet-sign-raw：钱包只签名 → 后端核对签名交易 → 后端广播（一次性，不重试）。
+ *   方式二 wallet-sent：钱包内确认并广播 → 后端按哈希事后核对。
+ * 门禁关闭时恒返回 403（当前状态：不存在可用广播路径）。
  */
 router.post('/broadcast', async (req, res) => {
   const body = req.body || {};
-  let state = null;
-  try { state = await loadGateState(); } catch { state = null; }
-  const decision = evaluateTxRequest(
-    { key: body.key || 'positionManager', selector: body.selector || '0xdd46508f', amountUsd: body.amountUsd, intentType: body.type },
-    state || { now: Math.floor(Date.now() / 1000) }
-  );
-  try { await recordAttempt({ ...body, key: body.key || 'positionManager' }, decision); } catch { /* 审计失败不影响拒绝 */ }
-  res.status(403).json({
-    error: '交易门禁拒绝：M3.1 只读阶段不提供广播能力',
-    decision,
-    notes: ['广播路径在 M3.3 前不存在；本接口不会构造、签名或发送任何交易'],
+  const { intentId, mode = null, rawTx = null, txHash = null, calldata = null, to = null, value = '0', chainId = null } = body;
+  if (!intentId) return res.status(400).json({ error: '缺少 intentId' });
+  let it = null;
+  try {
+    const { rows } = await dbQuery('SELECT * FROM tx_intents WHERE id = $1', [intentId]);
+    if (!rows.length) return res.status(404).json({ error: `intent ${intentId} 不存在` });
+    it = rows[0];
+  } catch (e) {
+    return res.status(500).json({ error: `无法读取 intent：${String(e.message).slice(0, 200)}` });
+  }
+
+  const gate = await txGateStatus();
+  const params = it.params ? JSON.parse(it.params) : {};
+  const key = it.key || whitelistKeyOf(it.target_contract);
+  const usedCalldata = calldata || it.calldata;
+
+  let decoded = null;
+  try {
+    decoded = decodeForCheck({ calldata: usedCalldata, key, intent: { type: it.intent_type, params } });
+  } catch (e) {
+    return res.status(400).json({ ok: false, error: `calldata 解码失败：${String(e.message).slice(0, 300)}` });
+  }
+  const simulation = await loadLatestSimulation({ intentId });
+  const built = buildPreSignCurrent({
+    intent: { ...it, key }, simulation, request: { calldata: usedCalldata, to: to || it.target_contract, value, chainId },
+    decoded, simMaxAgeSec: TX_GATE.limits.simMaxAgeSec,
   });
+
+  // 广播前置检查（纯函数，逐条拒绝原因都可在测试中复现）
+  const authorization = await loadLatestAuthorization({ intentId, user: it.user_addr, includeConsumed: true });
+  const pf = preflightBroadcast({
+    gate,
+    authorization: authorization ? { status: authorization.status, bindingHash: authorization.bindingHash, consumedAt: authorization.consumedAt } : null,
+    bindingHash: built.ok ? bindingHashOf(computeBinding({ ...built.current, calldataHash: it.calldata_hash })) : null,
+    mode, rawTx, txHash, limits: TX_GATE.limits,
+  });
+  if (!pf.ok) {
+    try {
+      await recordAttempt({ key, selector: it.selector, intentType: it.intent_type, intentId: Number(intentId), user: it.user_addr, amountUsd: it.amount_usd != null ? Number(it.amount_usd) : null }, { ok: false, code: pf.code, reason: pf.reason, gateVersion: TX_GATE.version });
+      await dbQuery(`INSERT INTO tx_audit (chain_id, intent_id, event, user_addr, target_contract, selector, calldata_hash, payload)
+                     VALUES ($1,$2,'broadcast-rejected',$3,$4,$5,$6,$7)`,
+        [it.chain_id, intentId, it.user_addr, it.target_contract, it.selector, it.calldata_hash, JSON.stringify({ code: pf.code, reason: pf.reason, mode })]);
+    } catch { /* 审计失败不改变拒绝结果 */ }
+    return res.status(403).json({ ok: false, code: pf.code, reason: pf.reason, gate, notes: ['广播被拒绝：未发出任何交易'] });
+  }
+  if (!built.ok) return res.status(409).json({ ok: false, code: 'PRESIGN_FAILED', reason: built.reason });
+
+  // 同一 intent 只允许一笔广播
+  try {
+    const { rows } = await dbQuery('SELECT id, tx_hash, status FROM tx_broadcasts WHERE intent_id = $1', [intentId]);
+    const single = checkExistingBroadcast(rows);
+    if (!single.ok) return res.status(409).json({ ok: false, code: single.code, reason: single.reason });
+  } catch (e) {
+    return res.status(503).json({ ok: false, code: 'BROADCAST_STORE_UNAVAILABLE', reason: `无法确认是否已广播，已拒绝：${String(e.message).slice(0, 200)}` });
+  }
+
+  const binding = computeBinding({ ...built.current, calldataHash: it.calldata_hash });
+  const rpcUrl = CHAIN.rpcEndpoints.filter((e) => e.enabled).sort((a, b) => (a.priority || 9) - (b.priority || 9))[0].url;
+
+  let result;
+  if (mode === 'wallet-sign-raw') {
+    // 发送前核对：签名交易必须与授权绑定完全一致
+    const check = await verifyRawTxAgainstBinding({ rawTx, binding, user: it.user_addr, limits: TX_GATE.limits });
+    if (!check.ok) {
+      await tripKillSwitch({ reason: `签名交易与授权绑定不一致（${check.code}）：${check.reason}`, actor: 'broadcast-guard' }).catch(() => {});
+      await dbQuery(`INSERT INTO tx_audit (chain_id, intent_id, event, user_addr, target_contract, selector, calldata_hash, payload)
+                     VALUES ($1,$2,'broadcast-rejected',$3,$4,$5,$6,$7)`,
+        [it.chain_id, intentId, it.user_addr, it.target_contract, it.selector, it.calldata_hash, JSON.stringify({ code: check.code, reason: check.reason })]).catch(() => {});
+      return res.status(409).json({ ok: false, code: check.code, reason: check.reason, notes: ['签名交易未通过核对：已拒绝广播并触发熔断'] });
+    }
+    result = await sendRawTransactionOnce({ rawTx, rpcUrl });
+  } else {
+    const tx = await fetchTxByHash({ txHash, rpcUrl });
+    const check = verifyOnChainTxAgainstBinding({ tx, binding, user: it.user_addr, limits: TX_GATE.limits });
+    if (!check.ok) {
+      await tripKillSwitch({ reason: `链上交易与授权绑定不一致（${check.code}）：${check.reason}`, actor: 'broadcast-guard' }).catch(() => {});
+      result = { ok: false, code: check.code, reason: check.reason, ambiguous: false };
+    } else {
+      result = { ok: true, txHash, rpcUrl, verifiedOnChain: true };
+    }
+  }
+
+  let broadcastId = null;
+  const failure = result.ok ? null : classifyBroadcastFailure(result);
+  try {
+    const { rows } = await dbQuery(
+      `INSERT INTO tx_broadcasts (chain_id, intent_id, user_addr, mode, binding_hash, raw_tx_fingerprint, tx_hash, status, verification, error)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+      [it.chain_id, intentId, it.user_addr, mode, bindingHashOf(binding), rawTxFingerprint(rawTx),
+        result.txHash || txHash || null, result.ok ? 'submitted' : 'rejected',
+        JSON.stringify({ preflight: pf, mode }), result.ok ? null : `${result.code}: ${result.reason}`]
+    );
+    broadcastId = rows[0].id;
+    await dbQuery(`INSERT INTO tx_audit (chain_id, intent_id, event, user_addr, target_contract, selector, calldata_hash, payload)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [it.chain_id, intentId, result.ok ? 'broadcast' : 'broadcast-failed', it.user_addr, it.target_contract, it.selector, it.calldata_hash,
+        JSON.stringify({ broadcastId, mode, txHash: result.txHash || txHash || null, code: result.code || null, reason: result.reason || null })]);
+  } catch (e) {
+    return res.status(500).json({ ok: false, code: 'BROADCAST_RECORD_FAILED', reason: `广播记录写入失败：${String(e.message).slice(0, 200)}`, txHash: result.txHash || txHash || null });
+  }
+
+  if (!result.ok && failure.tripKillSwitch) {
+    await tripKillSwitch({ reason: `${failure.reason}（${result.code}）`, actor: 'broadcast-guard' }).catch(() => {});
+  }
+
+  if (!result.ok) {
+    return res.status(409).json({ ok: false, code: result.code, reason: result.reason, broadcastId, killSwitchTripped: failure.tripKillSwitch, notes: ['广播失败：未自动重试，禁止自动重发'] });
+  }
+  res.json(safeJson({
+    ok: true, broadcastId, txHash: result.txHash, mode, bindingHash: bindingHashOf(binding),
+    notes: ['已广播一次（不重试、不加速、不替换）', '请继续调用 /api/tx/receipt 跟踪回执'],
+  }));
+});
+
+/**
+ * 回执跟踪与核对（M3.3 步骤 9-11）：轮询回执（只读）→ 核对 → 失败熔断 → 写审计。
+ * 轮询 ≠ 重发：本接口只读回执，绝不重新发送交易。
+ */
+router.post('/receipt', async (req, res) => {
+  try {
+    const { broadcastId = null, txHash = null, hypeUsd = null } = req.body || {};
+    let row = null;
+    if (broadcastId) {
+      const { rows } = await dbQuery('SELECT * FROM tx_broadcasts WHERE id = $1', [broadcastId]);
+      row = rows[0] || null;
+    } else if (txHash) {
+      const { rows } = await dbQuery('SELECT * FROM tx_broadcasts WHERE tx_hash = $1', [txHash]);
+      row = rows[0] || null;
+    }
+    if (!row) return res.status(404).json({ error: '找不到对应的广播记录（请提供 broadcastId 或 txHash）' });
+    if (!row.tx_hash) return res.status(409).json({ ok: false, code: 'NO_TX_HASH', reason: '该广播记录没有交易哈希（广播未成功），无回执可查' });
+
+    const { rows: intentRows } = await dbQuery('SELECT * FROM tx_intents WHERE id = $1', [row.intent_id]);
+    if (!intentRows.length) return res.status(404).json({ error: 'intent 记录缺失' });
+    const it = intentRows[0];
+    // 授权绑定（用于回执核对：链上交易内容必须与授权内容一致）
+    const auth = await loadLatestAuthorization({ intentId: row.intent_id, includeConsumed: true });
+    const binding = auth ? auth.binding : null;
+
+    const rpcUrl = CHAIN.rpcEndpoints.filter((e) => e.enabled).sort((a, b) => (a.priority || 9) - (b.priority || 9))[0].url;
+    const receipt = await fetchReceipt({ txHash: row.tx_hash, rpcUrl, attempts: 6, pollMs: 2000 });
+    const tx = await fetchTxByHash({ txHash: row.tx_hash, rpcUrl });
+
+    let hype = hypeUsd;
+    if (hype == null) {
+      try { hype = (await getPrices()).HYPE?.usd ?? null; } catch { hype = null; }
+    }
+
+    const evaluated = evaluateReceipt({ receipt, tx, binding, user: it.user_addr, limits: TX_GATE.limits, hypeUsd: hype });
+    const status = evaluated.pending ? row.status : (evaluated.ok ? 'confirmed' : (evaluated.code === 'RECEIPT_REVERTED' ? 'reverted' : 'verification_failed'));
+
+    await dbQuery(
+      `UPDATE tx_broadcasts SET status = $2, receipt_status = $3, block_number = $4, gas_used = $5, gas_usd = $6, verification = $7, updated_at = now() WHERE id = $1`,
+      [row.id, status, evaluated.receipt ? evaluated.receipt.status : null,
+        evaluated.receipt ? evaluated.receipt.blockNumber : null, evaluated.receipt ? evaluated.receipt.gasUsed : null,
+        evaluated.gasUsd != null ? String(evaluated.gasUsd) : null, JSON.stringify({ evaluated: { ok: evaluated.ok, code: evaluated.code || null, deviations: evaluated.deviations || [] } })]
+    );
+    await dbQuery(`INSERT INTO tx_audit (chain_id, intent_id, event, user_addr, target_contract, selector, calldata_hash, payload)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [it.chain_id, row.intent_id, evaluated.pending ? 'receipt-pending' : (evaluated.ok ? 'receipt-confirmed' : 'receipt-failed'),
+        it.user_addr, it.target_contract, it.selector, it.calldata_hash,
+        JSON.stringify({ broadcastId: row.id, txHash: row.tx_hash, code: evaluated.code || null, receipt: evaluated.receipt || null, gasUsd: evaluated.gasUsd ?? null })]);
+
+    if (evaluated.tripKillSwitch) {
+      await tripKillSwitch({ reason: `交易回执核对失败（${evaluated.code}）：${evaluated.reason}`, actor: 'receipt-guard' }).catch(() => {});
+    }
+
+    res.json(safeJson({
+      ok: Boolean(evaluated.ok), pending: Boolean(evaluated.pending), code: evaluated.code || null, reason: evaluated.reason || null,
+      broadcastId: row.id, txHash: row.tx_hash, status, receipt: evaluated.receipt || null, gasUsd: evaluated.gasUsd ?? null,
+      deviations: evaluated.deviations || [], requiresReview: Boolean(evaluated.requiresReview), killSwitchTripped: Boolean(evaluated.tripKillSwitch),
+      notes: ['本接口只读回执，不会重新发送交易'],
+    }));
+  } catch (e) {
+    res.status(400).json({ error: String(e.message).slice(0, 400) });
+  }
+});
+
+/** 广播记录查询（只读，供前端展示） */
+router.get('/broadcasts/:intentId', async (req, res) => {
+  try {
+    const { rows } = await dbQuery(
+      `SELECT id, intent_id, mode, tx_hash, status, receipt_status, block_number, gas_used, gas_usd, error, created_at, updated_at
+         FROM tx_broadcasts WHERE intent_id = $1 ORDER BY id DESC`, [req.params.intentId]
+    );
+    res.json(safeJson({ intentId: Number(req.params.intentId), broadcasts: rows }));
+  } catch (e) {
+    res.status(400).json({ error: String(e.message).slice(0, 400) });
+  }
 });
 
 module.exports = router;

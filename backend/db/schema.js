@@ -217,3 +217,24 @@ exports.txGateReservations = pgTable('tx_gate_reservations', {
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
   released_at: timestamp('released_at', { withTimezone: true }),
 });
+
+// M3.3：广播与回执记录（手动签名 → 广播 → 回执核对 → 审计）
+exports.txBroadcasts = pgTable('tx_broadcasts', {
+  id: serial('id').primaryKey(),
+  chain_id: integer('chain_id').notNull(),
+  intent_id: integer('intent_id'),
+  user_addr: text('user_addr'),
+  mode: text('mode'), // wallet-sign-raw | wallet-sent
+  binding_hash: text('binding_hash'),
+  raw_tx_fingerprint: text('raw_tx_fingerprint'), // keccak256(rawTx)，不保存原始签名数据
+  tx_hash: text('tx_hash'),
+  status: text('status'), // submitted | confirmed | reverted | verification_failed | rejected
+  receipt_status: text('receipt_status'),
+  block_number: integer('block_number'),
+  gas_used: text('gas_used'),
+  gas_usd: text('gas_usd'),
+  verification: text('verification'), // JSON：内容核对结果 + 偏差
+  error: text('error'),
+  created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+});

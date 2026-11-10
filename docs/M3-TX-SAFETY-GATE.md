@@ -233,3 +233,16 @@ UPDATE tx_gate_buckets SET tx_count = tx_count + 1
 ```
 
 上述三处的当前值已由测试锁定：`backend/tests/tx-gate.test.js` 会在任何一处被误开时失败。
+
+## M3.3 广播路径（已实现，开关仍关闭）
+
+- **唯一写方法**：`eth_sendRawTransaction`，只出现在 `lib/tx-broadcast.js`，且为**单次调用**（无重试 / 无替换 / 无加速 / 无手工 nonce；静态断言）。
+- **广播前置条件**（任一不满足即拒绝，全部在发送之前）：门禁开启、解锁记录存在、熔断未触发（未知 = 拒绝）、
+  授权已一次性消费且未超时（`limits.broadcastConsumeMaxAgeSec`，默认 180s）、绑定哈希一致、方式属于两种手动方式之一。
+- **内容核对**：`wallet-sign-raw` 在发送前核对签名交易；`wallet-sent` 在事后按交易哈希核对。字段：chainId / to / value /
+  calldataHash / selector / 发送方（必须等于 intent 用户）/ Gas 价格上限。不一致 → 熔断。
+- **回执核对**：status 必须 success；链上内容必须与授权一致；实际 Gas 超上限记录偏差并要求人工复核。
+  回滚或事后不一致 → 熔断。轮询回执不等于重发。
+- **同一 intent 只允许一笔广播**；再次操作必须重新 build 新 intent（重新模拟、重新授权、重新消费）。
+- **当前状态**：`TX_GATE.enabled=false`、`unlockRecord.path=null`、所有 `writeEnabled=false`、PM `pending-official`、
+  **未生成解锁记录** → `/authorize` 与 `/broadcast` 恒 403。
