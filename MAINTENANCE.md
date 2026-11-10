@@ -150,3 +150,15 @@
 - **授权必须绑定交易内容**：只绑定「合约 + selector + 金额」会给「A 的授权发给 B」留口子；
   把 intentId / chainId / to / value / calldataHash / deadline / minOut / 区块 等算成 bindingHash 写进审计，
   签名前用真实 calldata 重算比对，任何字段变化一律重新 build → simulate → authorize。
+
+## 2026-11-10（第三轮）签名前核对与跨进程原子性
+
+- **核对必须重建「当前交易」，不能把授权值放回去**：`verifyBinding(auth, {...auth, 部分字段})` 这种写法等于只核对了那部分字段，
+  其余字段永远「一致」。正确做法：当前绑定由 intent 记录 + 当前请求 + 真实 calldata 解码结果重建，再逐字段比对。
+- **绑定哈希要自校验**：`bindingHashOf(binding) === authorization.bindingHash`，否则「内容改了、哈希没同步」可以绕过核对。
+- **selector 应由 calldata 推导**，不要相信传入值（测试里对 `selector` 字段的断言因此要改成「换一段 selector 不同的 calldata」）。
+- **释放额度要有唯一 reservation id + 条件更新**：否则重复释放会把额度越扣越多（等于变相放宽上限）。
+- **跨进程正确性靠数据库，不靠进程内锁**：`withTxLock` 只协调单进程；生产要多实例/多 worker，必须有行锁 + 条件更新，
+  并用**真实多进程测试**验证（`execFile` 起多个 node 进程并发抢同一个桶）。
+- **平台 schema 同步不保证给已有表加列**：新增列要么重建表，要么在 `ensureIndexes()` 里显式
+  `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`（幂等），否则会出现 `column "x" does not exist`。

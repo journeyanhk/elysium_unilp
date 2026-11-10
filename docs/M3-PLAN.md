@@ -204,6 +204,16 @@ tx_audit     审计（intent_id、用户确认时间、签名者地址、交易�
 
 门禁版本：`M3-gate-3` → **`M3-gate-4`**。测试：139 → **154**。
 
+## 14. 第三轮阻塞项修复记录（P0 签名前核对 / P1 跨进程原子性）
+
+| 项 | 要求 | 实现 | 证据 |
+|---|---|---|---|
+| **P0** | `preSignCheck()` 必须完整核对当前 intent 绑定，不得把授权值放回当前交易 | 重写 `preSignCheck({ authorization, current, calldata, decoded })`：① **绑定哈希自校验**（`bindingHashOf(binding) === authorization.bindingHash`，防篡改）；② 用**真实 calldata** 重算 `calldataHash` 并推导 `selector`；③ 用 **intent 记录 + 当前请求 + calldata 解码结果**重建当前绑定（intentId / chainId / to / value / intentType / amountUsd / deadline / minOut / actions / quoteBlock / simBlock / simBlockHash / poolId / key）；④ 逐字段比对，任何变化都必须重新 build → simulate → authorize | `tests/tx-binding.test.js`（19 条）：intentId / deadline / minOut / actions / amountUsd / quoteBlock / simBlockHash / poolId / intentType / selector / calldata / to / value / chainId 任一变化 → 拒绝；篡改绑定但哈希未同步 → 拒绝；实测 1 字节 calldata 改动即被拒绝 |
+| P0 配套 | — | `tx_intents` 新增 `key` / `amount_usd` 列（`key` 由目标合约反查，保证可重建）；新增 `decodeForCheck()`（复用同一套参数级校验解码真实 calldata）；`ensureIndexes()` 增加**幂等列补齐**（平台 schema 同步对「已有表加列」不保证） | 实测 intent 记录含 `key=positionManager`、`amount_usd=5` |
+| **P1** | 额度原子性需跨进程/跨连接验证；补重复 release 等测试 | ① 额度占用仍是**单条原子语句**（`FOR UPDATE` 行锁 + 条件更新），数据库层保证跨进程；② 新增 **唯一 reservation id**（`tx_gate_reservations` 表）：占用时在同一原子语句内写入，释放为**条件更新**（`released <> 'true'`），重复释放无副作用 | `tests/tx-gate-multiprocess.test.js`（6 条，**真实多进程**）：5 个独立进程 + 每分钟 1 → 恰好 1 通过；5 进程 + 日金额 3 USD → 恰好 3 通过且金额恰为 3；5 进程 + 每日 2 笔 → 恰好 2 通过；重复释放 3 次 → 仅第一次生效、桶不出现负数；释放不存在的 reservation → 无副作用；每次占用产生唯一可审计记录 |
+
+**门禁版本**：`M3-gate-4`。**测试总数**：157 → **167**。
+
 ## 9. 本阶段复核点（请 review）
 
 1. 门禁模型（双重门禁 + 解锁记录 + 熔断）是否足够；

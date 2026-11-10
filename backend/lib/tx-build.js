@@ -144,6 +144,8 @@ function buildIntent(p = {}) {
   const wlPoolKey = whitelistedPoolKey();
   const record = {
     chainId,
+    key: whitelistKeyOf(target), // 门禁白名单键（由目标合约反查，保证可重建）
+    amountUsd: p.amountUsd != null ? Number(p.amountUsd) : null,
     type,
     user,
     targetContract: target,
@@ -165,4 +167,12 @@ function buildIntent(p = {}) {
   return record;
 }
 
-module.exports = { buildIntent, INTENT_TYPES, buildApproveCalldata, buildPermit2ApproveCalldata };
+/** 由目标合约地址反查门禁白名单键（positionManager / permit2 / KNTQ / ...） */
+function whitelistKeyOf(address) {
+  const a = String(address || '').toLowerCase();
+  for (const [k, v] of Object.entries(CONTRACTS)) if (v && v.address && String(v.address).toLowerCase() === a) return k;
+  for (const [k, v] of Object.entries(TOKENS)) if (v && v.address && String(v.address).toLowerCase() === a) return k;
+  return null;
+}
+
+module.exports = { buildIntent, whitelistKeyOf, INTENT_TYPES, buildApproveCalldata, buildPermit2ApproveCalldata };

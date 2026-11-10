@@ -142,6 +142,16 @@
 
 测试：139 → **154/154**。
 
+## 第三轮阻塞项修复（2026-11-10）
+
+| 项 | 处理 | 证据 |
+|---|---|---|
+| P0 签名前核对 | `preSignCheck()` 重写：绑定哈希自校验 + 真实 calldata 重算/解码 + 由 intent 记录重建当前绑定 + 逐字段比对（14 个字段） | `tests/tx-binding.test.js` 19 条；实测 1 字节改动、intentId 改动、deadline 改动、篡改绑定均被拒绝 |
+| P0 配套 | `tx_intents` 加 `key` / `amount_usd`；新增 `decodeForCheck()`；`ensureIndexes()` 幂等补齐列（平台同步不保证给已有表加列） | 实测 intent 记录含 `key=positionManager`、`amount_usd=5` |
+| P1 跨进程 | 唯一 reservation id + 条件释放（重复释放无副作用） | `tests/tx-gate-multiprocess.test.js` 6 条，真实多进程：5 进程 + 每分钟 1 → 恰好 1；5 进程 + 日金额 3 USD → 恰好 3；5 进程 + 每日 2 → 恰好 2 |
+
+测试：157 → **167/167**。
+
 ## 下一步（M3 预览）
 
 - 交易开关（官方确认 或 用户知情接受 + 首笔小额）

@@ -93,43 +93,112 @@ test('授权 A 不能被用于交易 B（calldata 不同 → 绑定不一致）'
   assert.match(res.reason, /必须重新 build/);
 });
 
-test('preSignCheck：calldata 与授权绑定一致 → 通过', () => {
-  const binding = computeBinding(baseReq(calldataHashOf(CALldata_A)));
-  const authorization = { binding, bindingHash: bindingHashOf(binding) };
-  const r = preSignCheck({ authorization, intent: { calldataHash: calldataHashOf(CALldata_A) }, calldata: CALldata_A, to: PM, value: '0', chainId: CHAIN.id });
+// —— 新签名：preSignCheck({ authorization, current, calldata, decoded }) ——
+// current 必须来自 intent 记录 + 当前请求（不得把授权值放回去）
+
+function authFixture(over = {}) {
+  const base = {
+    key: 'positionManager', selector: '0xdd46508f', intentType: 'mint', intentId: 101,
+    chainId: CHAIN.id, to: PM, value: '0', calldataHash: calldataHashOf(CALldata_A),
+    amountUsd: 5, deadline: 1794300000, minOut: '100:200', quoteBlock: 3885000,
+    simBlock: 3885001, simBlockHash: '0x' + 'ee'.repeat(32), actions: ['MINT_POSITION', 'SETTLE_PAIR'],
+    poolId: '0x' + 'ff'.repeat(32),
+  };
+  const binding = computeBinding({ ...base, ...over });
+  return { authorization: { binding, bindingHash: bindingHashOf(binding) }, binding, base: { ...base, ...over } };
+}
+function currentFixture(base, over = {}) {
+  const { calldataHash, selector, ...rest } = { ...base, ...over };
+  return { ...rest };
+}
+
+test('preSignCheck：当前交易与授权绑定完全一致 → 通过', () => {
+  const { authorization, base } = authFixture();
+  const r = preSignCheck({
+    authorization, current: currentFixture(base), calldata: CALldata_A,
+    decoded: { selector: '0xdd46508f', actions: ['MINT_POSITION', 'SETTLE_PAIR'], deadline: base.deadline, minOut: base.minOut },
+  });
   assert.equal(r.ok, true, r.reason);
   assert.equal(r.calldataHash, calldataHashOf(CALldata_A));
 });
 
 test('preSignCheck：签名前 calldata 被改动 → 拒绝（且给出明确原因）', () => {
-  const binding = computeBinding(baseReq(calldataHashOf(CALldata_A)));
-  const authorization = { binding, bindingHash: bindingHashOf(binding) };
-  const r = preSignCheck({ authorization, intent: { calldataHash: calldataHashOf(CALldata_A) }, calldata: CALldata_B, to: PM, value: '0', chainId: CHAIN.id });
+  const { authorization, base } = authFixture();
+  const r = preSignCheck({ authorization, current: currentFixture(base), calldata: CALldata_B });
   assert.equal(r.ok, false);
-  assert.match(r.reason, /签名前核对失败/);
+  assert.ok(r.changed.includes('calldataHash'), JSON.stringify(r.changed));
 });
 
 test('preSignCheck：to / value / chainId 变化 → 拒绝', () => {
-  const binding = computeBinding(baseReq(calldataHashOf(CALldata_A)));
-  const authorization = { binding, bindingHash: bindingHashOf(binding) };
-  for (const over of [{ to: '0x' + '11'.repeat(20) }, { value: '1' }, { chainId: 1 }]) {
-    const r = preSignCheck({ authorization, intent: { calldataHash: calldataHashOf(CALldata_A) }, calldata: CALldata_A, to: PM, value: '0', chainId: CHAIN.id, ...over });
+  const { authorization, base } = authFixture();
+  const cases = [
+    { to: '0x' + '11'.repeat(20) },
+    { value: '1' },
+    { chainId: 1 },
+  ];
+  for (const over of cases) {
+    const r = preSignCheck({ authorization, current: currentFixture(base, over), calldata: CALldata_A });
     assert.equal(r.ok, false, `变化 ${JSON.stringify(over)} 应被拒绝`);
   }
 });
 
-test('preSignCheck：无授权绑定 / 无绑定哈希 → 一律拒绝', () => {
-  assert.equal(preSignCheck({ authorization: {}, calldata: CALldata_A }).ok, false);
-  const binding = computeBinding(baseReq(calldataHashOf(CALldata_A)));
-  assert.equal(preSignCheck({ authorization: { binding }, calldata: CALldata_A }).ok, false);
+test('preSignCheck：intentId 改变 → 拒绝（当前交易的 intent 必须与授权一致）', () => {
+  const { authorization, base } = authFixture();
+  const r = preSignCheck({ authorization, current: currentFixture(base, { intentId: 202 }), calldata: CALldata_A });
+  assert.equal(r.ok, false);
+  assert.ok(r.changed.includes('intentId'), JSON.stringify(r.changed));
 });
 
-test('preSignCheck：intent 记录与 calldata 不一致（intent 被替换）→ 拒绝', () => {
-  const binding = computeBinding(baseReq(calldataHashOf(CALldata_A)));
-  const authorization = { binding, bindingHash: bindingHashOf(binding) };
-  const r = preSignCheck({ authorization, intent: { calldataHash: calldataHashOf(CALldata_B) }, calldata: CALldata_A, to: PM });
+test('preSignCheck：deadline / minOut / actions / amountUsd / quoteBlock / simBlockHash 改变 → 全部拒绝', () => {
+  const { authorization, base } = authFixture();
+  const cases = [
+    ['deadline', { deadline: base.deadline + 600 }],
+    ['minOut', { minOut: '0:0' }],
+    ['actions', { actions: ['DECREASE_LIQUIDITY', 'TAKE_PAIR'] }],
+    ['amountUsd', { amountUsd: 50 }],
+    ['quoteBlock', { quoteBlock: 3885001 }],
+    ['simBlockHash', { simBlockHash: '0x' + 'aa'.repeat(32) }],
+    ['poolId', { poolId: '0x' + '11'.repeat(32) }],
+    ['intentType', { intentType: 'remove' }],
+  ];
+  for (const [field, over] of cases) {
+    const r = preSignCheck({ authorization, current: currentFixture(base, over), calldata: CALldata_A });
+    assert.equal(r.ok, false, `字段 ${field} 变化应被拒绝`);
+    assert.ok(r.changed.includes(field), `应指出变化字段 ${field}，实际 ${JSON.stringify(r.changed)}`);
+  }
+});
+
+test('preSignCheck：calldata 的 selector 与授权不同 → 拒绝（selector 由真实 calldata 推导）', () => {
+  const { authorization, base } = authFixture();
+  const otherSelectorCalldata = '0x095ea7b3' + '11'.repeat(32);
+  const r = preSignCheck({ authorization, current: currentFixture(base), calldata: otherSelectorCalldata });
   assert.equal(r.ok, false);
-  assert.match(r.reason, /intent/);
+  assert.ok(r.changed.includes('calldataHash') || r.changed.includes('selector'), JSON.stringify(r.changed));
+});
+
+test('preSignCheck：解码结果（来自真实 calldata）与授权不一致 → 拒绝', () => {
+  const { authorization, base } = authFixture();
+  const r = preSignCheck({
+    authorization, current: currentFixture(base), calldata: CALldata_A,
+    decoded: { selector: '0xdd46508f', actions: ['DECREASE_LIQUIDITY', 'TAKE_PAIR'], deadline: base.deadline, minOut: base.minOut },
+  });
+  assert.equal(r.ok, false);
+  assert.ok(r.changed.includes('actions'));
+});
+
+test('preSignCheck：绑定内容被篡改但哈希未同步 → 拒绝（bindingHash 自校验）', () => {
+  const { authorization } = authFixture();
+  const tampered = { ...authorization, binding: { ...authorization.binding, amountUsd: 500 } };
+  const r = preSignCheck({ authorization: tampered, current: currentFixture(authFixture().base), calldata: CALldata_A });
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /篡改/);
+});
+
+test('preSignCheck：无授权绑定 / 无绑定哈希 / 无 calldata → 一律拒绝', () => {
+  const { authorization, base } = authFixture();
+  assert.equal(preSignCheck({ authorization: {}, current: base, calldata: CALldata_A }).ok, false);
+  assert.equal(preSignCheck({ authorization: { binding: authorization.binding }, current: base, calldata: CALldata_A }).ok, false);
+  assert.equal(preSignCheck({ authorization, current: { ...base, calldataHash: null } }).ok, false);
 });
 
 // ---------- 门禁层绑定校验 ----------

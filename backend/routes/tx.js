@@ -16,6 +16,8 @@ const { loadLatestAuthorization } = require('../lib/tx-gate-state');
 const { buildIntent } = require('../lib/tx-build');
 const { simulate, checkSimulationUser } = require('../lib/tx-simulate');
 const { preSignCheck } = require('../lib/tx-binding');
+const { decodeForCheck } = require('../lib/tx-parse');
+const { whitelistKeyOf } = require('../lib/tx-build');
 const { assertTxAllowed, txGateStatus, evaluateTxRequest } = require('../config/tx-gate');
 const { recordAttempt, loadGateState } = require('../lib/tx-gate-state');
 const simulator = require('../lib/simulator');
@@ -68,13 +70,14 @@ router.post('/build', async (req, res) => {
       const { rows } = await dbQuery(
         `INSERT INTO tx_intents
            (chain_id, intent_type, user_addr, target_contract, selector, calldata_hash, calldata, actions,
-            pool_id, pool_key, token_id, params, quote_snapshot, deadline, gate_version)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
+            pool_id, pool_key, token_id, params, quote_snapshot, deadline, gate_version, key, amount_usd)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id`,
         [
           record.chainId, record.type, record.user, record.targetContract, record.selector,
           record.calldataHash, record.calldata, JSON.stringify(record.actions),
           record.poolId, JSON.stringify(record.poolKey), record.tokenId,
           JSON.stringify(record.params), JSON.stringify(record.quoteSnapshot), record.deadline, record.gateVersion,
+          record.key, record.amountUsd != null ? String(record.amountUsd) : null,
         ]
       );
       intentId = rows[0].id;
@@ -175,29 +178,76 @@ router.post('/simulate', async (req, res) => {
  * 任何字段变化都必须重新 build → simulate → authorize；本接口不签名、不广播。
  */
 router.post('/pre-sign-check', async (req, res) => {
-  const { intentId, calldata, to, value = '0', chainId = null } = req.body || {};
-  if (!intentId) return res.status(400).json({ error: '缺少 intentId' });
-  const { rows } = await dbQuery('SELECT * FROM tx_intents WHERE id = $1', [intentId]);
-  if (!rows.length) return res.status(404).json({ error: `intent ${intentId} 不存在` });
-  const it = rows[0];
-  const authorization = await loadLatestAuthorization({ intentId });
-  if (!authorization) {
-    return res.json({
-      ok: false,
-      reason: '该 intent 尚无门禁授权记录（未经过 authorizeTx），禁止签名',
+  try {
+    const { intentId, calldata, to, value = '0', chainId = null } = req.body || {};
+    if (!intentId) return res.status(400).json({ error: '缺少 intentId' });
+    const { rows } = await dbQuery('SELECT * FROM tx_intents WHERE id = $1', [intentId]);
+    if (!rows.length) return res.status(404).json({ error: `intent ${intentId} 不存在` });
+    const it = rows[0];
+
+    const authorization = await loadLatestAuthorization({ intentId });
+    if (!authorization) {
+      return res.json({
+        ok: false,
+        reason: '该 intent 尚无门禁授权记录（未经过 authorizeTx），禁止签名',
+        intentUser: it.user_addr,
+      });
+    }
+
+    // 「当前交易」= intent 记录（权威）+ 本次请求 + 真实 calldata 解码结果
+    const params = it.params ? JSON.parse(it.params) : {};
+    const intentForDecode = { type: it.intent_type, params };
+    const key = it.key || whitelistKeyOf(it.target_contract);
+    let decoded = null;
+    let decodeError = null;
+    try {
+      decoded = decodeForCheck({ calldata, key, intent: intentForDecode });
+    } catch (e) {
+      decodeError = String(e.message).slice(0, 300); // 解码失败 → 直接拒绝（fail-closed）
+    }
+
+    const current = {
+      intentId: it.id,
+      chainId: it.chain_id,
+      to: to || it.target_contract,
+      value: value != null ? String(value) : '0',
+      selector: it.selector,
+      key,
+      intentType: it.intent_type,
+      amountUsd: it.amount_usd != null ? Number(it.amount_usd) : null,
+      deadline: it.deadline != null ? Number(it.deadline) : null,
+      minOut: null,
+      quoteBlock: null,
+      simBlock: null,
+      simBlockHash: null,
+      actions: it.actions ? JSON.parse(it.actions) : null,
+      poolId: it.pool_id,
+    };
+
+    if (decodeError) {
+      return res.json(safeJson({
+        ok: false,
+        reason: `calldata 解码失败，禁止签名：${decodeError}`,
+        intentUser: it.user_addr,
+        notes: ['本接口只做核对，不签名、不广播'],
+      }));
+    }
+
+    const check = preSignCheck({ authorization, current, calldata, decoded });
+    res.json(safeJson({
+      ok: Boolean(check.ok),
+      reason: check.reason || null,
+      changed: check.changed || null,
+      calldataHash: check.calldataHash || null,
+      authorizedAt: authorization.at,
+      bindingHash: authorization.bindingHash,
       intentUser: it.user_addr,
-    });
+      decoded: decoded ? { selector: decoded.selector, actions: decoded.actions, deadline: decoded.deadline, minOut: decoded.minOut } : null,
+      notes: ['本接口只做核对，不签名、不广播', '任何字段变化都必须重新 build → simulate → authorize'],
+    }));
+  } catch (e) {
+    res.status(400).json({ error: String(e.message).slice(0, 400) });
   }
-  const check = preSignCheck({ authorization, intent: { calldataHash: it.calldata_hash }, calldata, to, value, chainId });
-  res.json(safeJson({
-    ok: Boolean(check.ok),
-    reason: check.reason || null,
-    calldataHash: check.calldataHash || null,
-    authorizedAt: authorization.at,
-    bindingHash: authorization.bindingHash,
-    intentUser: it.user_addr,
-    notes: ['本接口只做核对，不签名、不广播'],
-  }));
 });
 
 /**

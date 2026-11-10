@@ -108,8 +108,12 @@ deadline / minOut / quoteBlock / simBlock / simBlockHash / simResultHash / actio
 
 - 门禁新增校验：`BINDING_MISSING`（缺绑定字段）、`CHAIN_MISMATCH`、`TO_MISMATCH`（`to` 必须等于该白名单条目地址）；
 - 审计表新增 `intent_id` / `binding_hash` / `binding` 三列，可按 intent 找回授权；
-- 新增只读接口 `POST /api/tx/pre-sign-check`：用**真实 calldata** 重算哈希，与授权绑定逐项比对，
-  任何字段变化都会返回「必须重新 build → simulate → authorize」；本接口不签名、不广播；
+- 新增只读接口 `POST /api/tx/pre-sign-check`：用**真实 calldata** 重算哈希并解码出 actions / deadline / 金额边界，
+  与授权绑定**逐字段**比对（intentId / chainId / to / value / intentType / amountUsd / deadline / minOut /
+  actions / quoteBlock / simBlockHash / poolId / selector）；任何字段变化都会返回
+  「必须重新 build → simulate → authorize」；本接口不签名、不广播；
+- **当前交易绑定必须重建**（不得把授权值放回当前交易）：`current` 来自 intent 记录 + 当前请求 + 真实 calldata 解码；
+- **绑定哈希自校验**：`bindingHashOf(binding)` 必须等于记录中的 `bindingHash`，内容被篡改即拒绝；
 - 因此「交易 A 获得授权 → 实际发送交易 B」的路径被关闭：B 的 calldata 哈希与 A 的绑定不同，核对必然失败。
 
 ## 4.1.2 审计 fail-closed（M3.2 review P0-2）
@@ -121,7 +125,9 @@ UPDATE tx_gate_buckets SET tx_count = tx_count + 1
  WHERE bucket_key = 'minute:…' AND tx_count < 每分钟上限 RETURNING tx_count;
 ```
 
-- 占用顺序：每分钟笔数 → 每日笔数 → 每日金额；任一步不满足即拒绝，并**回滚**已占用的桶；
+- 唯一 **reservation id**：占用时在**同一原子语句**内写入 `tx_gate_reservations`；释放为条件更新
+  （`released <> 'true'`），重复释放无副作用、不会把额度扣成负数；
+- **跨进程**：进程内互斥锁只协调单进程，跨实例正确性由数据库行锁 + 条件更新保证（多进程并发测试覆盖）；
 - 行锁 + 条件重判保证并发下不会超额；补偿只可能「多算」额度（更保守），**不会少算**（不会放行）；
 - 金额以「分」存整数（`amount_cents`），避免浮点误差；
 - 并发测试（真实 Postgres，`tests/tx-gate-concurrency.test.js`）：5 个并发请求 + 每分钟上限 1 → 恰好 1 个通过；5 × 1 USD + 日上限 3 USD → 恰好 3 个通过，日累计恰好 3 USD。

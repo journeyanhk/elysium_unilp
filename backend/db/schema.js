@@ -200,3 +200,15 @@ exports.txGateBuckets = pgTable('tx_gate_buckets', {
   amount_cents: integer('amount_cents').notNull().default(0), // 金额以「分」存整数，避免浮点误差
   updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow(),
 });
+
+// 额度占用记录（唯一 reservation id；释放必须条件更新，保证重复释放无副作用）
+exports.txGateReservations = pgTable('tx_gate_reservations', {
+  reservation_id: text('reservation_id').primaryKey(),
+  namespace: text('namespace'),
+  amount_cents: integer('amount_cents').notNull().default(0),
+  minute_key: text('minute_key'),
+  day_key: text('day_key'),
+  released: text('released').notNull().default('false'),
+  created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  released_at: timestamp('released_at', { withTimezone: true }),
+});

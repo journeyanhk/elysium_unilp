@@ -85,39 +85,71 @@ function verifyBinding(authorizedBinding = {}, currentReq = {}) {
 }
 
 /**
- * 签名前核对（M3.3 使用）：用真实 calldata 重算 calldataHash，并核对 to / value / chainId / intentId。
- * 任何一项不一致都必须重新走 build → simulate → authorize，禁止继续签名。
+ * 签名前核对（M3.3 使用；M3.2 最终评审 P0 修订）。
+ *
+ * 关键点：**当前交易**的绑定必须由「intent 记录 + 当前请求 + 真实 calldata 解码」重新构造，
+ * 绝不能把授权绑定里的字段原样放回去（那等于没核对）。
+ *
+ * 核对内容：
+ *   1. 授权绑定自身完整性：bindingHashOf(binding) === authorization.bindingHash（防篡改）
+ *   2. 真实 calldata 重算 calldataHash，并从中解析 selector / actions / deadline / 金额边界
+ *   3. 用 intent 记录（intentId / chainId / to / intentType / amountUsd / quoteBlock / poolId 等）
+ *      重建当前绑定，逐字段与授权绑定比对
+ *
+ * 任何不一致 → ok:false，必须重新 build → simulate → authorize。
  */
-function preSignCheck({ authorization = {}, intent = null, calldata, to, value = '0', chainId = null } = {}) {
+function preSignCheck({ authorization = {}, current = {}, calldata = null, decoded = null } = {}) {
   const authBinding = authorization.binding || null;
   if (!authBinding) return { ok: false, reason: '缺少授权绑定（未经过 authorizeTx），禁止签名' };
   if (!authorization.bindingHash) return { ok: false, reason: '缺少授权绑定哈希，禁止签名' };
 
-  let recomputed;
+  // 1) 绑定哈希自校验（内容被篡改但哈希未同步 → 拒绝）
+  let selfHash;
   try {
-    recomputed = calldataHashOf(calldata);
+    selfHash = bindingHashOf(authBinding);
   } catch (e) {
-    return { ok: false, reason: `calldata 校验失败：${e.message}` };
+    return { ok: false, reason: `授权绑定无法计算哈希：${e.message}` };
   }
-  if (recomputed.toLowerCase() !== String(authBinding.calldataHash || '').toLowerCase()) {
+  if (selfHash.toLowerCase() !== String(authorization.bindingHash).toLowerCase()) {
     return {
       ok: false,
-      reason: `签名前核对失败：当前 calldata 哈希 ${recomputed} 与授权绑定 ${authBinding.calldataHash} 不一致`,
+      reason: '授权绑定内容与其哈希不一致（疑似被篡改），禁止签名',
+      expected: authorization.bindingHash,
+      actual: selfHash,
     };
   }
-  if (intent && intent.calldataHash && String(intent.calldataHash).toLowerCase() !== recomputed.toLowerCase()) {
-    return { ok: false, reason: '签名前核对失败：calldata 与 intent 记录不一致（intent 可能已被替换）' };
+
+  // 2) 用真实 calldata 重算哈希与 selector
+  let calldataHash = null;
+  let selector = null;
+  if (calldata != null) {
+    try {
+      calldataHash = calldataHashOf(calldata);
+    } catch (e) {
+      return { ok: false, reason: `calldata 校验失败：${e.message}` };
+    }
+    if (!/^0x[0-9a-fA-F]{8}/.test(calldata)) return { ok: false, reason: 'calldata 过短，缺少 selector' };
+    selector = calldata.slice(0, 10).toLowerCase();
+  } else if (current.calldataHash) {
+    calldataHash = String(current.calldataHash).toLowerCase();
+  } else {
+    return { ok: false, reason: '缺少 calldata，无法核对' };
   }
 
-  const res = verifyBinding(authBinding, {
-    ...authBinding,
-    calldataHash: recomputed,
-    to,
-    value: value != null ? String(value) : authBinding.value,
-    chainId: chainId != null ? Number(chainId) : authBinding.chainId,
-  });
-  if (!res.ok) return res;
-  return { ok: true, calldataHash: recomputed };
+  // 3) 构造「当前交易」绑定：intent 记录 + 当前请求 + 解码结果（解码结果优先）
+  const merged = { ...current };
+  if (decoded) {
+    if (decoded.actions) merged.actions = decoded.actions;
+    if (decoded.deadline != null) merged.deadline = decoded.deadline;
+    if (decoded.minOut !== undefined) merged.minOut = decoded.minOut;
+    if (decoded.selector) merged.selector = decoded.selector;
+  }
+  const currentBinding = computeBinding({ ...merged, calldataHash, selector: selector || merged.selector });
+
+  // 4) 逐字段比对（含 intentId / chainId / to / value / amountUsd / deadline / minOut / actions / quoteBlock / simBlockHash / poolId ...）
+  const res = verifyBinding(authBinding, currentBinding);
+  if (!res.ok) return { ok: false, reason: res.reason, changed: res.changed };
+  return { ok: true, calldataHash, bindingHash: selfHash };
 }
 
 module.exports = { computeBinding, bindingHashOf, assertBindingComplete, calldataHashOf, verifyBinding, preSignCheck };

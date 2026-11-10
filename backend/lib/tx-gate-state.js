@@ -99,6 +99,7 @@ async function reserveQuota({ amountUsd, config, namespace = '', db = dbQuerySaf
     return { ok: false, code: 'AMOUNT_INVALID', reason: '额度占用金额必须大于 0' };
   }
   const ns = _safeNamespace(namespace);
+  const reservationId = _safeNamespace(require('crypto').randomBytes(16).toString('hex'));
   const minuteKey = `${ns}minute:`;
   const dayKey = `${ns}day:`;
   const maxMinute = _safeInt(L.maxTxPerMinute, 'maxTxPerMinute');
@@ -135,9 +136,16 @@ async function reserveQuota({ amountUsd, config, namespace = '', db = dbQuerySaf
      SET tx_count = tx_count + 1, amount_cents = amount_cents + $5, updated_at = now()
    WHERE bucket_key = $2 || ${_dayExpr} AND (SELECT pass FROM dec)
    RETURNING tx_count AS c, amount_cents AS ac
+), r AS (
+  -- 唯一 reservation id：释放必须条件更新，重复释放无副作用
+  INSERT INTO tx_gate_reservations (reservation_id, namespace, amount_cents, minute_key, day_key, released)
+  SELECT $7, $8, $5, $1 || ${_minuteExpr}, $2 || ${_dayExpr}, 'false'
+   WHERE (SELECT pass FROM dec)
+  RETURNING reservation_id
 )
 SELECT (SELECT pass FROM dec) AS ok, (SELECT reject_code FROM dec) AS reject_code,
-       (SELECT c FROM m) AS minute_count, (SELECT c FROM d) AS day_count, (SELECT ac FROM d) AS day_cents`;
+       (SELECT c FROM m) AS minute_count, (SELECT c FROM d) AS day_count, (SELECT ac FROM d) AS day_cents,
+       (SELECT reservation_id FROM r) AS reservation_id`;
 
   return withTxLock(async () => {
     // 幂等建桶必须在原子语句之前完成：同一语句内的 CTE 互相看不到对方写入的行
@@ -148,7 +156,7 @@ SELECT (SELECT pass FROM dec) AS ok, (SELECT reject_code FROM dec) AS reject_cod
 
     let r;
     try {
-      r = await db(sql, [minuteKey, dayKey, maxMinute, maxDay, centsLit, maxCents]);
+      r = await db(sql, [minuteKey, dayKey, maxMinute, maxDay, centsLit, maxCents, reservationId, ns]);
     } catch (e) {
       // 出错时立刻回滚，避免共享会话停留在 aborted 状态拖垮整个进程
       try { await db('ROLLBACK'); } catch { /* 无活动事务时 ROLLBACK 会告警，不致命 */ }
@@ -168,7 +176,7 @@ SELECT (SELECT pass FROM dec) AS ok, (SELECT reject_code FROM dec) AS reject_cod
     }
     return {
       ok: true,
-      reservation: { namespace: ns, cents, minuteKey: minuteKey, dayKey: dayKey },
+      reservation: { reservationId: row.reservation_id, namespace: ns, cents, minuteKey: minuteKey, dayKey: dayKey },
       snapshot: {
         minuteCount: Number(row.minute_count),
         dayCount: Number(row.day_count),
@@ -179,29 +187,51 @@ SELECT (SELECT pass FROM dec) AS ok, (SELECT reject_code FROM dec) AS reject_cod
 }
 
 /**
- * 释放一次额度占用（审计写入失败等场景的补偿）：同样是单一事务内的条件扣减。
- * 失败只会导致额度「多算」（更保守），绝不会导致放行。
+ * 释放一次额度占用（审计写入失败等场景的补偿）。
+ * M3.2 最终评审 P1：以**唯一 reservation id** 为准，释放是条件更新：
+ *   - 已释放过的 reservation 再释放 → 无任何副作用（重复 release 安全）
+ *   - reservation 不存在 → 无任何副作用
+ *   - 三个桶的扣减与标记释放同处一条语句（全或无）
  */
 async function releaseQuota(reservation = {}, db = dbQuerySafe) {
-  const ns = _safeNamespace(reservation.namespace || '');
-  const cents = _safeInt(Math.round(Number(reservation.cents || 0)), 'releaseCents');
-  const mKey = `'${ns}minute:'`;
-  const dKey = `'${ns}day:'`;
-  const sql = `BEGIN;
-SELECT 1 FROM tx_gate_buckets WHERE bucket_key IN (${mKey} || ${_minuteExpr}, ${dKey} || ${_dayExpr}) ORDER BY bucket_key FOR UPDATE;
-UPDATE tx_gate_buckets SET tx_count = GREATEST(tx_count - 1, 0) WHERE bucket_key = ${mKey} || ${_minuteExpr};
-UPDATE tx_gate_buckets SET tx_count = GREATEST(tx_count - 1, 0) WHERE bucket_key = ${dKey} || ${_dayExpr};
-UPDATE tx_gate_buckets SET amount_cents = GREATEST(amount_cents - ${cents}, 0) WHERE bucket_key = ${dKey} || ${_dayExpr};
-COMMIT;`;
+  const rid = reservation.reservationId ? _safeNamespace(String(reservation.reservationId)) : null;
+  if (!rid) throw new Error('释放额度必须提供 reservationId（唯一占用标识）');
+  const sql = `WITH u AS (
+  UPDATE tx_gate_reservations SET released = 'true', released_at = now()
+   WHERE reservation_id = $1 AND released <> 'true'
+   RETURNING namespace, amount_cents, minute_key, day_key
+), m AS (
+  UPDATE tx_gate_buckets SET tx_count = GREATEST(tx_count - 1, 0), updated_at = now()
+   WHERE bucket_key = (SELECT minute_key FROM u) AND (SELECT count(*) FROM u) = 1
+   RETURNING tx_count AS c
+), d AS (
+  UPDATE tx_gate_buckets
+     SET tx_count = GREATEST(tx_count - 1, 0),
+         amount_cents = GREATEST(amount_cents - (SELECT amount_cents FROM u), 0),
+         updated_at = now()
+   WHERE bucket_key = (SELECT day_key FROM u) AND (SELECT count(*) FROM u) = 1
+   RETURNING tx_count AS c
+)
+SELECT (SELECT count(*) FROM u) AS released_n, (SELECT c FROM m) AS minute_count, (SELECT c FROM d) AS day_count`;
   return withTxLock(async () => {
     try {
-      await db(sql);
+      const r = await db(sql, [rid]);
+      const row = (r.rows && r.rows.length) ? r.rows[0] : null;
+      return { released: row ? Number(row.released_n) === 1 : false };
     } catch (e) {
       try { await db('ROLLBACK'); } catch { /* 同上 */ }
       throw e;
     }
-    return true;
   });
+}
+
+/** 读取某 reservation 的释放状态（供测试核对） */
+async function loadReservation({ reservationId, db = dbQuerySafe } = {}) {
+  const { rows } = await db(
+    `SELECT reservation_id, namespace, amount_cents, minute_key, day_key, released, released_at
+       FROM tx_gate_reservations WHERE reservation_id = $1`, [String(reservationId)]
+  );
+  return rows.length ? rows[0] : null;
 }
 
 /** 读取当前桶（供状态接口 / 测试核对） */
@@ -282,6 +312,7 @@ module.exports = {
   reserveQuota,
   releaseQuota,
   loadBuckets,
+  loadReservation,
   loadKillSwitch,
   loadCounters,
   loadGateState,

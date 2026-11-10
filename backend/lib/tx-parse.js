@@ -279,8 +279,43 @@ function validateCall({ key, calldata, intent, now = Math.floor(Date.now() / 100
   return { selector: parsed.selector, name: 'modifyLiquidities', actions: snapshot.actions, snapshot };
 }
 
+/**
+ * 从**真实 calldata** 解出可用于签名前核对的字段（复用同一套参数级校验，不放松任何限制）。
+ * intent（类型 + 参数）来自 intent 记录（权威来源），用于校验 action 组合与金额方向。
+ * 任何解码失败都会抛错 → 调用方必须拒绝签名（fail-closed）。
+ */
+function decodeForCheck({ calldata, key, intent = null }) {
+  const r = validateCall({ key, calldata, intent });
+  const snap = r.snapshot || {};
+  const params = Array.isArray(snap.params) ? snap.params : [];
+  return {
+    selector: r.selector,
+    name: r.name,
+    actions: r.actions || snap.actions || null,
+    deadline: snap.deadline != null ? Number(snap.deadline) : null,
+    minOut: amountBoundsOf(params),
+    params,
+  };
+}
+
+/**
+ * 金额边界的规范化表示（授权与签名前核对使用同一个函数，保证可比性）：
+ *   - mint：MINT_POSITION 的 amount0Max / amount1Max
+ *   - remove：DECREASE_LIQUIDITY 的 amount0Min / amount1Min
+ *   - collect：liquidity 必须为 0（金额边界恒为 0:0）
+ */
+function amountBoundsOf(params = []) {
+  const p = params.find((x) => x && (x.amount0Min != null || x.amount0Max != null)) || {};
+  const a0 = p.amount0Min != null ? p.amount0Min : p.amount0Max;
+  const a1 = p.amount1Min != null ? p.amount1Min : p.amount1Max;
+  if (a0 == null && a1 == null) return null;
+  return `${a0 != null ? a0 : 0}:${a1 != null ? a1 : 0}`;
+}
+
 module.exports = {
   ACTIONS,
+  decodeForCheck,
+  amountBoundsOf,
   ALLOWED_ACTION_SEQUENCES,
   parseCalldata,
   decodeUnlockData,

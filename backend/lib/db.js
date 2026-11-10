@@ -39,6 +39,12 @@ function ensureIndexes() {
       await dbQuery('CREATE UNIQUE INDEX IF NOT EXISTS block_times_uniq ON block_times (chain_id, block_number)');
       // M3.2：门禁额度桶唯一索引（并发原子占用依赖 ON CONFLICT / 条件 UPDATE）
       await dbQuery('CREATE UNIQUE INDEX IF NOT EXISTS tx_gate_buckets_key_uniq ON tx_gate_buckets (bucket_key)');
+      // M3.2：门禁相关列的幂等补齐（平台 schema 同步对「已有表新增列」不保证，这里显式兜底）
+      await dbQuery('ALTER TABLE tx_intents ADD COLUMN IF NOT EXISTS key text');
+      await dbQuery('ALTER TABLE tx_intents ADD COLUMN IF NOT EXISTS amount_usd text');
+      await dbQuery('ALTER TABLE tx_gate_attempts ADD COLUMN IF NOT EXISTS intent_id text');
+      await dbQuery('ALTER TABLE tx_gate_attempts ADD COLUMN IF NOT EXISTS binding_hash text');
+      await dbQuery('ALTER TABLE tx_gate_attempts ADD COLUMN IF NOT EXISTS binding text');
     })().catch((e) => {
       done = null; // 允许重试
       throw e;
