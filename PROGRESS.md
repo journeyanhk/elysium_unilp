@@ -79,6 +79,17 @@
 
 **本次重新生成结果**：3000/3000 逐位一致；calldata 解码 18 / 排他性假设检验 2982（歧义 0）；跨 tick 123 / 多步 123；feePaid 链上反推 48 条（48/48 一致）、参考实现推导 2952 条；fixture sha256 `f639703c…`。
 
+## M3 规划（M3.0 已完成，写操作全关）
+
+| 交付 | 内容 |
+|---|---|
+| `docs/M3-PLAN.md` | 范围与不做清单、阶段划分（M3.0 → M3.4）、8 步交易流程、后端/前端/数据库改动清单、测试计划、安全不变量、风险与回滚、5 个复核点 |
+| `docs/M3-TX-SAFETY-GATE.md` | 三重关闭 + 双重门禁、解锁条件（官方确认 / 用户知情接受）+ 硬性条件、首笔小额 20 USD、硬上限表、允许合约与函数白名单（5 合约 5 选择器）、熔断条件、逐笔确认 UI 要求、审计字段、开启前检查清单、一键全关 |
+| `backend/config/tx-gate.js` | 门禁代码化：总开关 `enabled=false`、上限、允许调用清单、禁止能力、熔断、`assertTxAllowed()`、`txGateStatus()` |
+| `backend/tests/tx-gate.test.js` | **10 条门禁测试**：总开关关闭、全部 `writeEnabled=false`、PM 保持 `pending-official`、运行时拦截器逐个抛错、允许清单无多余入口（拒绝 `multicall`/`permit` 代发）、上限保守区间、禁止能力覆盖、门禁逻辑演练、前端拦截器保持关闭 |
+
+**M3 边界**：在交易开关（M3.2）通过下一轮 review 前，不打开真实交易、签名、Approve、Permit2、mint、burn、collect 或 `modifyLiquidities`。M3.1 只做只读预演（构造 + `eth_call`），**不签名、不广播**。
+
 ## 下一步（M3 预览）
 
 - 交易开关（官方确认 或 用户知情接受 + 首笔小额）
