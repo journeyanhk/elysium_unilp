@@ -17,8 +17,10 @@ const { buildIntent } = require('../lib/tx-build');
 const { simulate, checkSimulationUser } = require('../lib/tx-simulate');
 const { preSignCheck } = require('../lib/tx-binding');
 const { decodeForCheck } = require('../lib/tx-parse');
+const { simResultHashOf, buildPreSignCurrent } = require('../lib/tx-presign');
+const { loadLatestSimulation, loadConsumedAuthorization, consumeAuthorization } = require('../lib/tx-gate-state');
 const { whitelistKeyOf } = require('../lib/tx-build');
-const { assertTxAllowed, txGateStatus, evaluateTxRequest } = require('../config/tx-gate');
+const { TX_GATE, assertTxAllowed, txGateStatus, evaluateTxRequest } = require('../config/tx-gate');
 const { recordAttempt, loadGateState } = require('../lib/tx-gate-state');
 const simulator = require('../lib/simulator');
 const { getPrices } = require('../lib/prices');
@@ -140,13 +142,18 @@ router.post('/simulate', async (req, res) => {
       await dbQuery(
         `INSERT INTO tx_simulations
            (chain_id, intent_id, sim_block_number, sim_block_hash, state_block_number, rpc_endpoint,
-            eth_call_ok, eth_call_result, gas_estimate, gas_price_gwei, gas_usd, precheck, local_estimate, deviation)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+            eth_call_ok, eth_call_result, gas_estimate, gas_price_gwei, gas_usd, precheck, local_estimate, deviation, sim_result_hash)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
         [
           it.chain_id, intentId, sim.simBlockNumber, sim.simBlockHash, sim.stateBlockNumber, sim.rpcEndpoint,
           sim.ethCallOk ? 1 : 0, JSON.stringify({ result: sim.ethCallResult, revertReason: sim.revertReason }).slice(0, 4000),
           sim.gasEstimate, sim.gasPriceGwei != null ? String(sim.gasPriceGwei) : null, sim.gasUsd != null ? String(sim.gasUsd) : null,
           JSON.stringify(sim.precheck), JSON.stringify(sim.localEstimate), JSON.stringify(sim.deviation),
+          simResultHashOf({
+            ethCallOk: sim.ethCallOk, revertReason: sim.revertReason, gasEstimate: sim.gasEstimate,
+            gasUsd: sim.gasUsd, simBlockNumber: sim.simBlockNumber, simBlockHash: sim.simBlockHash,
+            precheckIssues: sim.precheck ? sim.precheck.issues : null,
+          }),
         ]
       );
       await dbQuery(
@@ -185,65 +192,136 @@ router.post('/pre-sign-check', async (req, res) => {
     if (!rows.length) return res.status(404).json({ error: `intent ${intentId} 不存在` });
     const it = rows[0];
 
-    const authorization = await loadLatestAuthorization({ intentId });
-    if (!authorization) {
-      return res.json({
-        ok: false,
-        reason: '该 intent 尚无门禁授权记录（未经过 authorizeTx），禁止签名',
-        intentUser: it.user_addr,
-      });
-    }
-
-    // 「当前交易」= intent 记录（权威）+ 本次请求 + 真实 calldata 解码结果
     const params = it.params ? JSON.parse(it.params) : {};
-    const intentForDecode = { type: it.intent_type, params };
     const key = it.key || whitelistKeyOf(it.target_contract);
+    const intentActions = it.actions ? JSON.parse(it.actions) : null;
+
+    // 1) 真实 calldata 解码（失败即拒绝）
     let decoded = null;
-    let decodeError = null;
     try {
-      decoded = decodeForCheck({ calldata, key, intent: intentForDecode });
+      decoded = decodeForCheck({ calldata, key, intent: { type: it.intent_type, params } });
     } catch (e) {
-      decodeError = String(e.message).slice(0, 300); // 解码失败 → 直接拒绝（fail-closed）
+      return res.json(safeJson({
+        ok: false, reason: `calldata 解码失败，禁止签名：${String(e.message).slice(0, 300)}`,
+        intentUser: it.user_addr, notes: ['本接口只做核对，不签名、不广播'],
+      }));
     }
 
-    const current = {
-      intentId: it.id,
-      chainId: it.chain_id,
-      to: to || it.target_contract,
-      value: value != null ? String(value) : '0',
-      selector: it.selector,
-      key,
-      intentType: it.intent_type,
-      amountUsd: it.amount_usd != null ? Number(it.amount_usd) : null,
-      deadline: it.deadline != null ? Number(it.deadline) : null,
-      minOut: null,
-      quoteBlock: null,
-      simBlock: null,
-      simBlockHash: null,
-      actions: it.actions ? JSON.parse(it.actions) : null,
-      poolId: it.pool_id,
-    };
-
-    if (decodeError) {
+    // 2) 权威模拟数据（最新成功模拟）；缺失/过期/哈希缺失 → 直接拒绝，不用 null 补位
+    const simulation = await loadLatestSimulation({ intentId });
+    const built = buildPreSignCurrent({
+      intent: { ...it, key }, simulation, request: { calldata, to, value, chainId },
+      decoded, simMaxAgeSec: TX_GATE.limits.simMaxAgeSec,
+    });
+    if (!built.ok) {
       return res.json(safeJson({
-        ok: false,
-        reason: `calldata 解码失败，禁止签名：${decodeError}`,
-        intentUser: it.user_addr,
+        ok: false, reason: built.reason, intentUser: it.user_addr,
+        simulation: simulation ? { simulationId: simulation.simulationId, at: simulation.at, simBlockHash: simulation.simBlockHash } : null,
         notes: ['本接口只做核对，不签名、不广播'],
       }));
     }
 
-    const check = preSignCheck({ authorization, current, calldata, decoded });
+    // 3) 授权记录（按 intent + 绑定哈希 + 用户；已消费的单独提示）
+    const authProbe = loadLatestAuthorization({ intentId, user: it.user_addr });
+    const authorization = await authProbe;
+    const consumed = await loadConsumedAuthorization({ intentId });
+    if (!authorization) {
+      return res.json(safeJson({
+        ok: false,
+        reason: consumed
+          ? '该 intent 的授权已被消费（一次性授权），禁止再次签名/广播'
+          : '该 intent 尚无门禁授权记录（未经过 authorizeTx），禁止签名',
+        intentUser: it.user_addr,
+        consumedAt: consumed ? consumed.consumed_at : null,
+        notes: ['本接口只做核对，不签名、不广播'],
+      }));
+    }
+
+    const check = preSignCheck({ authorization, current: built.current, calldata, decoded });
     res.json(safeJson({
       ok: Boolean(check.ok),
       reason: check.reason || null,
       changed: check.changed || null,
       calldataHash: check.calldataHash || null,
-      authorizedAt: authorization.at,
       bindingHash: authorization.bindingHash,
+      authorizationId: authorization.attemptId,
+      authorizedAt: authorization.at,
       intentUser: it.user_addr,
-      decoded: decoded ? { selector: decoded.selector, actions: decoded.actions, deadline: decoded.deadline, minOut: decoded.minOut } : null,
+      simulation: { simulationId: simulation.simulationId, quoteBlock: built.current.quoteBlock, simBlock: built.current.simBlock, simBlockHash: built.current.simBlockHash, simResultHash: built.current.simResultHash, at: simulation.at },
+      decoded: { selector: decoded.selector, actions: decoded.actions, deadline: decoded.deadline, minOut: decoded.minOut },
       notes: ['本接口只做核对，不签名、不广播', '任何字段变化都必须重新 build → simulate → authorize'],
+    }));
+  } catch (e) {
+    res.status(400).json({ error: String(e.message).slice(0, 400) });
+  }
+});
+
+/**
+ * 一次性消费授权（M3.2 第四轮评审 P0-2）：
+ *   真正触发签名之前必须执行一次**不可重复**的消费步骤。
+ *   流程：重建权威当前交易 → 完整核对 → 条件 UPDATE 消费（重复消费返回 0 行 → 拒绝）。
+ *   本接口不签名、不广播，但会写入消费记录（谁、何时）。
+ */
+router.post('/consume-authorization', async (req, res) => {
+  try {
+    const { intentId, calldata, to, value = '0', chainId = null, actor = 'user' } = req.body || {};
+    if (!intentId) return res.status(400).json({ error: '缺少 intentId' });
+    const { rows } = await dbQuery('SELECT * FROM tx_intents WHERE id = $1', [intentId]);
+    if (!rows.length) return res.status(404).json({ error: `intent ${intentId} 不存在` });
+    const it = rows[0];
+
+    const params = it.params ? JSON.parse(it.params) : {};
+    const key = it.key || whitelistKeyOf(it.target_contract);
+    let decoded = null;
+    try {
+      decoded = decodeForCheck({ calldata, key, intent: { type: it.intent_type, params } });
+    } catch (e) {
+      return res.status(400).json({ ok: false, reason: `calldata 解码失败，拒绝消费授权：${String(e.message).slice(0, 300)}` });
+    }
+
+    const simulation = await loadLatestSimulation({ intentId });
+    const built = buildPreSignCurrent({
+      intent: { ...it, key }, simulation, request: { calldata, to, value, chainId },
+      decoded, simMaxAgeSec: TX_GATE.limits.simMaxAgeSec,
+    });
+    if (!built.ok) return res.status(409).json({ ok: false, reason: built.reason });
+
+    const authorization = await loadLatestAuthorization({ intentId, user: it.user_addr });
+    if (!authorization) {
+      const consumed = await loadConsumedAuthorization({ intentId });
+      return res.status(409).json({
+        ok: false,
+        reason: consumed ? '授权已被消费（一次性授权），拒绝重复消费' : '该 intent 尚无门禁授权记录（未经过 authorizeTx）',
+      });
+    }
+
+    const check = preSignCheck({ authorization, current: built.current, calldata, decoded });
+    if (!check.ok) return res.status(409).json({ ok: false, reason: check.reason, changed: check.changed || null });
+
+    // 消费必须同时绑定 intentId + bindingHash + 用户地址
+    if (String(authorization.bindingHash).toLowerCase() !== String(check.bindingHash).toLowerCase()) {
+      return res.status(409).json({ ok: false, reason: '授权绑定哈希与当前交易不一致，拒绝消费' });
+    }
+    const consumed = await consumeAuthorization({ attemptId: authorization.attemptId, actor });
+    if (!consumed.ok) return res.status(409).json({ ok: false, reason: consumed.reason });
+
+    try {
+      await dbQuery(
+        `INSERT INTO tx_audit (chain_id, intent_id, event, user_addr, target_contract, selector, calldata_hash, payload)
+         VALUES ($1,$2,'authorization-consumed',$3,$4,$5,$6,$7)`,
+        [it.chain_id, intentId, it.user_addr, it.target_contract, it.selector, it.calldata_hash,
+          JSON.stringify({ authorizationId: consumed.attemptId, bindingHash: consumed.bindingHash, consumedBy: consumed.consumedBy, at: consumed.consumedAt })]
+      );
+    } catch { /* 审计失败不影响消费结果（消费已落库，可查） */ }
+
+    res.json(safeJson({
+      ok: true,
+      authorizationId: consumed.attemptId,
+      bindingHash: consumed.bindingHash,
+      consumedAt: consumed.consumedAt,
+      consumedBy: consumed.consumedBy,
+      intentUser: it.user_addr,
+      notes: ['授权已一次性消费：重复消费/重复签名将被拒绝', '本接口不签名、不广播'],
     }));
   } catch (e) {
     res.status(400).json({ error: String(e.message).slice(0, 400) });

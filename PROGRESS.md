@@ -152,6 +152,15 @@
 
 测试：157 → **167/167**。
 
+## 第四轮阻塞项修复（2026-11-10）
+
+| 项 | 处理 | 证据 |
+|---|---|---|
+| P0-1 权威模拟数据 | `lib/tx-presign.js`：由 intent + 最新成功模拟 + quote_snapshot + 真实 calldata 解码重建当前绑定；无成功模拟 / 过期 / 缺字段 → 拒绝；`/simulate` 落库 `sim_result_hash` | `tests/tx-presign.test.js` 14 条；实测无模拟→拒绝、有模拟→通过 |
+| P0-2 授权一次性消费 | `user_addr` / `authorization_status` / `consumed_at` / `consumed_by`；按 intent+bindingHash+用户匹配；`consumeAuthorization()` 条件原子更新；新增 `POST /api/tx/consume-authorization` | `tests/tx-authorization-consumption.test.js` 6 条；实测首次消费成功、重复消费 409、消费后核对提示已消费 |
+
+测试：167 → **187/187**。
+
 ## 下一步（M3 预览）
 
 - 交易开关（官方确认 或 用户知情接受 + 首笔小额）

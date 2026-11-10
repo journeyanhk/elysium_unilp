@@ -214,6 +214,15 @@ tx_audit     审计（intent_id、用户确认时间、签名者地址、交易�
 
 **门禁版本**：`M3-gate-4`。**测试总数**：157 → **167**。
 
+## 15. 第四轮阻塞项修复记录（P0-1 权威模拟数据 / P0-2 授权一次性消费）
+
+| 项 | 要求 | 实现 | 证据 |
+|---|---|---|---|
+| **P0-1** | `/pre-sign-check` 必须加载权威模拟数据（不得用 null 补位） | 新增 `lib/tx-presign.js`：`buildPreSignCurrent()` 由 **tx_intents + 最新成功 tx_simulations + quote_snapshot + 真实 calldata 解码** 重建当前绑定（intentId / chainId / to / value / selector / key / intentType / amountUsd / deadline / minOut / **quoteBlock / simBlock / simBlockHash / simResultHash** / actions / poolId）。**没有成功模拟、模拟过期（`limits.simMaxAgeSec`，默认 300s）、缺少 simBlockHash/quoteBlock/simResultHash → 直接拒绝**；calldata 解码出的 actions / deadline 必须与 intent 记录一致，minOut 以解码结果为准。`/simulate` 落库新增 `sim_result_hash`（模拟结果摘要） | `tests/tx-presign.test.js`（14 条）；实测：无成功模拟 → 拒绝；写入权威模拟记录后 → **通过**；过期/字段不一致 → 拒绝 |
+| **P0-2** | 授权必须**一次性消费**，且绑定 intentId + bindingHash + 用户地址 | `tx_gate_attempts` 新增 `user_addr` / `authorization_status`（authorized→consumed）/ `consumed_at` / `consumed_by`；`loadLatestAuthorization()` 必须同时匹配 intent + bindingHash + 用户 + 未消费；新增 `consumeAuthorization()`（**条件原子更新**，重复消费返回 0 行 → 拒绝）；新增接口 `POST /api/tx/consume-authorization`（先完整核对再消费，消费写入审计） | `tests/tx-authorization-consumption.test.js`（6 条）；实测：首次消费 200 成功 → 重复消费 **409 拒绝** → 消费后核对提示「授权已被消费，禁止再次签名/广播」 |
+
+**测试总数**：167 → **187**。门禁版本仍为 `M3-gate-4`（新增 `limits.simMaxAgeSec`）。
+
 ## 9. 本阶段复核点（请 review）
 
 1. 门禁模型（双重门禁 + 解锁记录 + 熔断）是否足够；

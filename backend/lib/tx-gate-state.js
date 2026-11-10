@@ -246,8 +246,8 @@ async function loadBuckets({ namespace = '', db = dbQuerySafe } = {}) {
 async function recordAttempt(req = {}, decision = {}) {
   const { rows } = await dbQuerySafe(
     `INSERT INTO tx_gate_attempts
-       (chain_id, key, selector, intent_type, amount_usd, decision, reject_code, reject_reason, gate_version, intent_id, binding_hash, binding)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+       (chain_id, key, selector, intent_type, amount_usd, decision, reject_code, reject_reason, gate_version, intent_id, binding_hash, binding, user_addr, authorization_status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
      RETURNING id`,
     [
       req.chainId || null,
@@ -262,6 +262,8 @@ async function recordAttempt(req = {}, decision = {}) {
       req.intentId != null ? String(req.intentId) : null,
       decision.bindingHash || null,
       decision.binding ? JSON.stringify(decision.binding) : null,
+      req.user || null,
+      decision.ok ? 'authorized' : null, // 只有放行的记录才是「可消费的授权」
     ]
   );
   return rows[0] ? rows[0].id : null;
@@ -290,25 +292,95 @@ async function clearKillSwitch({ actor, reviewNote } = {}) {
   return { tripped: false, eventId: rows[0].id, at: rows[0].created_at };
 }
 
-/** 按 intent 取最近一次「已授权」记录（含绑定），供签名前核对 */
-async function loadLatestAuthorization({ intentId, db = dbQuerySafe } = {}) {
-  const { rows } = await db(
-    `SELECT id, decision, intent_id, binding_hash, binding, created_at
-       FROM tx_gate_attempts
-      WHERE intent_id = $1 AND decision = 'allowed' AND binding_hash IS NOT NULL
-      ORDER BY id DESC LIMIT 1`, [String(intentId)]
-  );
+/**
+ * 按 intent + 绑定哈希 + 用户 取「可消费的授权」记录（M3.2 第四轮 P0-2）：
+ *   - 只认 decision='allowed' 且 authorization_status='authorized'（未被消费）
+ *   - 不能只按 intentId 取最近一条：必须同时匹配 bindingHash 与用户地址
+ */
+async function loadLatestAuthorization({ intentId, bindingHash = null, user = null, includeConsumed = false, db = dbQuerySafe } = {}) {
+  const params = [String(intentId)];
+  let sql = `SELECT id, decision, intent_id, binding_hash, binding, user_addr, authorization_status, consumed_at, consumed_by, created_at
+               FROM tx_gate_attempts
+              WHERE intent_id = $1 AND decision = 'allowed' AND binding_hash IS NOT NULL`;
+  if (!includeConsumed) sql += ` AND (authorization_status IS NULL OR authorization_status = 'authorized')`;
+  if (bindingHash) { params.push(String(bindingHash).toLowerCase()); sql += ` AND lower(binding_hash) = $${params.length}`; }
+  if (user) { params.push(String(user).toLowerCase()); sql += ` AND lower(user_addr) = $${params.length}`; }
+  sql += ' ORDER BY id DESC LIMIT 1';
+  const { rows } = await db(sql, params);
   if (!rows.length) return null;
   const r = rows[0];
   let binding = null;
   try { binding = r.binding ? JSON.parse(r.binding) : null; } catch { binding = null; }
-  return { attemptId: r.id, intentId: r.intent_id, bindingHash: r.binding_hash, binding, at: r.created_at };
+  return {
+    attemptId: r.id, intentId: r.intent_id, bindingHash: r.binding_hash, binding,
+    user: r.user_addr, status: r.authorization_status || 'authorized',
+    consumedAt: r.consumed_at, consumedBy: r.consumed_by, at: r.created_at,
+  };
+}
+
+/** 是否存在已被消费的授权（用于给出明确拒绝原因） */
+async function loadConsumedAuthorization({ intentId, bindingHash = null, db = dbQuerySafe } = {}) {
+  const params = [String(intentId)];
+  let sql = `SELECT id, consumed_at, consumed_by FROM tx_gate_attempts
+              WHERE intent_id = $1 AND decision = 'allowed' AND authorization_status = 'consumed'`;
+  if (bindingHash) { params.push(String(bindingHash).toLowerCase()); sql += ` AND lower(binding_hash) = $${params.length}`; }
+  sql += ' ORDER BY id DESC LIMIT 1';
+  const { rows } = await db(sql, params);
+  return rows.length ? rows[0] : null;
+}
+
+/**
+ * 一次性消费授权（M3.2 第四轮 P0-2）：
+ *   条件更新，只有「未消费的 allowed 记录」能被消费一次；重复消费返回 0 行 → 调用方必须拒绝。
+ */
+async function consumeAuthorization({ attemptId, actor = 'user', db = dbQuerySafe } = {}) {
+  if (!attemptId) throw new Error('消费授权必须提供授权记录 id');
+  const { rows } = await db(
+    `UPDATE tx_gate_attempts
+        SET authorization_status = 'consumed', consumed_at = now(), consumed_by = $2
+      WHERE id = $1
+        AND decision = 'allowed'
+        AND (authorization_status IS NULL OR authorization_status = 'authorized')
+      RETURNING id, intent_id, binding_hash, user_addr, consumed_at, consumed_by`,
+    [Number(attemptId), String(actor).slice(0, 200)]
+  );
+  if (!rows.length) return { ok: false, reason: '授权不存在、已被消费或不属于可消费状态（拒绝重复签名/重复广播）' };
+  const r = rows[0];
+  return { ok: true, attemptId: r.id, intentId: r.intent_id, bindingHash: r.binding_hash, user: r.user_addr, consumedAt: r.consumed_at, consumedBy: r.consumed_by };
+}
+
+/** 取某 intent 最近一次「成功」的模拟记录（签名前核对必须使用权威模拟数据） */
+async function loadLatestSimulation({ intentId, db = dbQuerySafe } = {}) {
+  const { rows } = await db(
+    `SELECT id, intent_id, sim_block_number, sim_block_hash, state_block_number, eth_call_ok,
+            gas_estimate, gas_price_gwei, gas_usd, sim_result_hash, created_at
+       FROM tx_simulations
+      WHERE intent_id = $1 AND eth_call_ok = 1
+      ORDER BY id DESC LIMIT 1`, [Number(intentId)]
+  );
+  if (!rows.length) return null;
+  return {
+    simulationId: rows[0].id,
+    intentId: rows[0].intent_id,
+    simBlock: rows[0].sim_block_number != null ? Number(rows[0].sim_block_number) : null,
+    simBlockHash: rows[0].sim_block_hash,
+    quoteBlock: rows[0].state_block_number != null ? Number(rows[0].state_block_number) : null,
+    gasEstimate: rows[0].gas_estimate,
+    gasPriceGwei: rows[0].gas_price_gwei != null ? Number(rows[0].gas_price_gwei) : null,
+    gasUsd: rows[0].gas_usd != null ? Number(rows[0].gas_usd) : null,
+    simResultHash: rows[0].sim_result_hash,
+    at: rows[0].created_at,
+    createdAtMs: rows[0].created_at ? new Date(rows[0].created_at).getTime() : null,
+  };
 }
 
 module.exports = {
   storeKind,
   withTxLock,
   loadLatestAuthorization,
+  loadConsumedAuthorization,
+  consumeAuthorization,
+  loadLatestSimulation,
   reserveQuota,
   releaseQuota,
   loadBuckets,

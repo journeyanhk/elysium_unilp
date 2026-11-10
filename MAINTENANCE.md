@@ -162,3 +162,16 @@
   并用**真实多进程测试**验证（`execFile` 起多个 node 进程并发抢同一个桶）。
 - **平台 schema 同步不保证给已有表加列**：新增列要么重建表，要么在 `ensureIndexes()` 里显式
   `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`（幂等），否则会出现 `column "x" does not exist`。
+
+## 2026-11-10（第四轮）权威模拟数据与授权一次性消费
+
+- **签名前核对不能用 null 补位**：授权绑定里的 quoteBlock / simBlock / simBlockHash / simResultHash / minOut
+  必须从 tx_intents + 最新成功 tx_simulations + 真实 calldata 解码**重新加载**；否则要么合法交易被误拒，
+  要么为了放行而弱化比较、重新引入绕过风险。没有成功模拟/模拟过期 → 直接拒绝。
+- **一次性消费要原子**：`UPDATE ... WHERE id=$1 AND decision='allowed' AND authorization_status='authorized' RETURNING id`，
+  返回 0 行即拒绝。先查后改会留下「同一授权被消费两次」的窗口。
+- **授权定位要三要素**：intentId + bindingHash + 用户地址；只按 intentId 取最近一条会让别的 calldata/别的用户复用授权。
+- **模拟结果要有摘要**：`simResultHash`（ethCallOk / revertReason / gas / 区块 / 预检问题码的规范化哈希）参与绑定比对，
+  模拟结果变化即视为新交易，必须重新 authorize。
+- 端到端验证时如需夹具（成功的模拟记录、allowed 授权记录），**用完立刻按 id 精确删除**，并核对无残留
+  （避免污染审计与日额度统计）。

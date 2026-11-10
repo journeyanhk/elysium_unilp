@@ -64,6 +64,7 @@ const TX_GATE = {
     maxTxPerMinute: 1,
     maxTxPerDay: 3,
     maxDeadlineSec: 1800, // deadline 不得超过 30 分钟
+    simMaxAgeSec: 300, // 模拟结果有效期（签名前必须使用新鲜的成功模拟）
   },
 
   /**

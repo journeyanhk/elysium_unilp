@@ -45,6 +45,11 @@ function ensureIndexes() {
       await dbQuery('ALTER TABLE tx_gate_attempts ADD COLUMN IF NOT EXISTS intent_id text');
       await dbQuery('ALTER TABLE tx_gate_attempts ADD COLUMN IF NOT EXISTS binding_hash text');
       await dbQuery('ALTER TABLE tx_gate_attempts ADD COLUMN IF NOT EXISTS binding text');
+      await dbQuery('ALTER TABLE tx_gate_attempts ADD COLUMN IF NOT EXISTS user_addr text');
+      await dbQuery('ALTER TABLE tx_gate_attempts ADD COLUMN IF NOT EXISTS authorization_status text');
+      await dbQuery('ALTER TABLE tx_gate_attempts ADD COLUMN IF NOT EXISTS consumed_at timestamptz');
+      await dbQuery('ALTER TABLE tx_gate_attempts ADD COLUMN IF NOT EXISTS consumed_by text');
+      await dbQuery('ALTER TABLE tx_simulations ADD COLUMN IF NOT EXISTS sim_result_hash text');
     })().catch((e) => {
       done = null; // 允许重试
       throw e;

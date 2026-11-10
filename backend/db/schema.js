@@ -137,6 +137,7 @@ exports.txSimulations = pgTable('tx_simulations', {
   precheck: text('precheck'), // 余额/授权预检（JSON）
   local_estimate: text('local_estimate'), // 本地估算（JSON）
   deviation: text('deviation'), // 与链上模拟的偏差（JSON）
+  sim_result_hash: text('sim_result_hash'), // 模拟结果摘要（签名前核对必须一致）
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
 });
 
@@ -175,6 +176,10 @@ exports.txGateAttempts = pgTable('tx_gate_attempts', {
   reject_reason: text('reject_reason'),
   gate_version: text('gate_version'),
   intent_id: text('intent_id'), // 授权绑定的 intent（便于签名前按 intent 找回授权）
+  user_addr: text('user_addr'), // 授权绑定的用户地址（不得跨用户复用）
+  authorization_status: text('authorization_status'), // authorized | consumed（一次性消费）
+  consumed_at: timestamp('consumed_at', { withTimezone: true }),
+  consumed_by: text('consumed_by'),
   binding_hash: text('binding_hash'), // 交易内容级授权绑定哈希（M3.2 最终评审 P0-2）
   binding: text('binding'), // 绑定内容快照（JSON：intentId/chainId/to/value/calldataHash/...）
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),

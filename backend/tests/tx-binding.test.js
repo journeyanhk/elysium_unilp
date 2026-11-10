@@ -244,7 +244,7 @@ test('审计表与写入包含 intent_id / binding_hash / binding（静态检查
   assert.match(schema, /binding_hash: text\('binding_hash'\)/);
   assert.match(schema, /binding: text\('binding'\)/);
   const state = fs.readFileSync(path.join(__dirname, '..', 'lib', 'tx-gate-state.js'), 'utf8');
-  assert.match(state, /binding_hash, binding\)/);
+  assert.match(state, /binding_hash, binding/);
   assert.match(state, /loadLatestAuthorization/);
 });
 
@@ -252,9 +252,10 @@ test('只读接口 /api/tx/pre-sign-check 存在且不签名、不广播（静�
   const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'tx.js'), 'utf8');
   assert.match(src, /'\/pre-sign-check'/);
   const idx = src.indexOf("'/pre-sign-check'");
-  const handler = src.slice(idx, idx + 2200);
+  const handler = src.slice(idx, idx + 6000);
   assert.ok(!/sendTransaction|sendRawTransaction|signTransaction|eth_sign|personal_sign|wallet_/i.test(handler), '核对接口不得包含签名/发送调用');
-  assert.match(handler, /preSignCheck/);
+  assert.match(handler, /preSignCheck\(/);
+  assert.match(handler, /loadLatestSimulation/, '签名前核对必须加载权威模拟记录');
 });
 
 test('门禁版本为 M3-gate-4（含绑定校验）', () => {

@@ -114,6 +114,12 @@ deadline / minOut / quoteBlock / simBlock / simBlockHash / simResultHash / actio
   「必须重新 build → simulate → authorize」；本接口不签名、不广播；
 - **当前交易绑定必须重建**（不得把授权值放回当前交易）：`current` 来自 intent 记录 + 当前请求 + 真实 calldata 解码；
 - **绑定哈希自校验**：`bindingHashOf(binding)` 必须等于记录中的 `bindingHash`，内容被篡改即拒绝；
+- **权威模拟数据**：`quoteBlock / simBlock / simBlockHash / simResultHash / minOut` 必须来自
+  tx_intents + 最新成功 tx_simulations + 真实 calldata 解码，**不得用 null 补位**；
+  没有成功模拟、模拟超过 `limits.simMaxAgeSec`、缺少任一字段 → 直接拒绝签名；
+- **授权一次性消费**：`POST /api/tx/consume-authorization` 先完整核对再执行**条件原子更新**
+  （`authorization_status` authorized→consumed，记录 `consumed_at` / `consumed_by`）；
+  重复消费返回 0 行 → 拒绝；授权按 intent + bindingHash + 用户地址匹配，不能只按 intentId 取最近一条；
 - 因此「交易 A 获得授权 → 实际发送交易 B」的路径被关闭：B 的 calldata 哈希与 A 的绑定不同，核对必然失败。
 
 ## 4.1.2 审计 fail-closed（M3.2 review P0-2）
