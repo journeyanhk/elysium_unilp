@@ -96,3 +96,93 @@ exports.blockTimes = pgTable('block_times', {
   block_number: bigint('block_number', { mode: 'number' }).notNull(),
   block_time: timestamp('block_time', { withTimezone: true }),
 });
+
+// ============ M3.1：只读预演与交易审计（全部 append-only，不触碰已有用户数据表）============
+
+// 交易意图（build-only 阶段产出；不签名、不广播）
+exports.txIntents = pgTable('tx_intents', {
+  id: serial('id').primaryKey(),
+  chain_id: integer('chain_id').notNull(),
+  intent_type: text('intent_type').notNull(), // mint | collect | remove | approve | permit2-approve
+  user_addr: text('user_addr').notNull(),
+  target_contract: text('target_contract').notNull(),
+  selector: text('selector').notNull(),
+  calldata_hash: text('calldata_hash').notNull(), // keccak256(calldata)
+  calldata: text('calldata'),
+  actions: text('actions'), // 解码后的 action 列表（JSON 字符串）
+  pool_id: text('pool_id'),
+  pool_key: text('pool_key'), // PoolKey 完整快照（JSON）
+  token_id: text('token_id'),
+  params: text('params'), // intent 参数快照（JSON，含 tick / liquidity / minOut / deadline 等）
+  quote_snapshot: text('quote_snapshot'), // 报价快照（来源、时间、状态区块号）
+  deadline: bigint('deadline', { mode: 'number' }),
+  gate_version: text('gate_version'),
+  created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+
+// 预演结果（eth_call / gas 估算 / 只读预检；与 intent 分开保存）
+exports.txSimulations = pgTable('tx_simulations', {
+  id: serial('id').primaryKey(),
+  chain_id: integer('chain_id').notNull(),
+  intent_id: integer('intent_id').notNull(),
+  sim_block_number: bigint('sim_block_number', { mode: 'number' }),
+  sim_block_hash: text('sim_block_hash'),
+  state_block_number: bigint('state_block_number', { mode: 'number' }), // 报价/状态所用区块
+  rpc_endpoint: text('rpc_endpoint'),
+  eth_call_ok: integer('eth_call_ok'), // 1/0
+  eth_call_result: text('eth_call_result'),
+  gas_estimate: text('gas_estimate'),
+  gas_price_gwei: text('gas_price_gwei'),
+  gas_usd: text('gas_usd'),
+  precheck: text('precheck'), // 余额/授权预检（JSON）
+  local_estimate: text('local_estimate'), // 本地估算（JSON）
+  deviation: text('deviation'), // 与链上模拟的偏差（JSON）
+  created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+
+// 审计（append-only；不含私钥/助记词/签名原文）
+exports.txAudit = pgTable('tx_audit', {
+  id: serial('id').primaryKey(),
+  chain_id: integer('chain_id').notNull(),
+  intent_id: integer('intent_id'),
+  event: text('event').notNull(), // preview | build | simulate | gate_decision | user_confirmation | submit | receipt
+  signer_state: text('signer_state'), // requested | submitted | rejected | confirmed（仅状态，不含签名）
+  user_addr: text('user_addr'),
+  target_contract: text('target_contract'),
+  selector: text('selector'),
+  calldata_hash: text('calldata_hash'),
+  actions: text('actions'),
+  gate_result: text('gate_result'),
+  reject_reason: text('reject_reason'),
+  tx_hash: text('tx_hash'),
+  receipt_status: text('receipt_status'),
+  gas_used: text('gas_used'),
+  balance_delta: text('balance_delta'),
+  payload: text('payload'), // 事件附加信息（JSON）
+  created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+
+// 门禁判断记录（append-only；日额度与频率由此表聚合，进程重启不丢）
+exports.txGateAttempts = pgTable('tx_gate_attempts', {
+  id: serial('id').primaryKey(),
+  chain_id: integer('chain_id'),
+  key: text('key'),
+  selector: text('selector'),
+  intent_type: text('intent_type'),
+  amount_usd: text('amount_usd'),
+  decision: text('decision').notNull(), // allowed | rejected
+  reject_code: text('reject_code'),
+  reject_reason: text('reject_reason'),
+  gate_version: text('gate_version'),
+  created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+
+// 熔断事件（append-only；当前状态 = 最后一条事件）
+exports.gateKillSwitch = pgTable('gate_kill_switch', {
+  id: serial('id').primaryKey(),
+  event_type: text('event_type').notNull(), // trip | clear
+  reason: text('reason'),
+  actor: text('actor'),
+  review_note: text('review_note'),
+  created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});

@@ -104,3 +104,13 @@
 
 **本次踩坑**：`generatorCommitDirty` 的 `git status --porcelain` 用了相对 `backend/` 的 pathspec，但 `cwd` 是仓库根 → git 不匹配任何文件 → 恒返回 `false`（等于没检查）。正确写法：`cwd = 仓库根` + `backend/scripts/swap-vectors.js backend/reference`。**凡是用 git 状态做门禁，必须先用「故意弄脏工作树」的方式验证它真的会报 true。**
 
+## 2026-11-10（M3.1）只读预演管线 — 经验
+
+- **门禁要能测**：把判断逻辑做成纯函数 `evaluateTxRequest(req, state, config)`，异步壳 `assertTxAllowed(req, { stateProvider, config })` 注入状态与配置 → 测试直接调用**真实函数**验证每条边界（避免「测试复制逻辑」导致假通过）。业务路由禁止传入 config 覆盖（有静态断言）。
+- **配置与白名单必须同步**：门禁配置内的 `writeEnabled` 与 `config/whitelist.js` 由测试逐项比对；否则两处状态会漂移。
+- **持久化优先**：日额度、频率、熔断状态全部落 Postgres（append-only 事件表），`storeKind` 固定 `postgres` 并有断言禁止内存实现；`clear` 强制人工复核记录。
+- **参数级白名单**：V4 `modifyLiquidities` 是通用入口，仅校验 selector 无意义 → 必须解码 actions 与参数（PoolKey / tick 对齐 / liquidity 方向 / amount 上下限 / recipient / deadline），未知与夹带 action 一律拒绝；ERC-20 approve 必须限制 spender 与金额并禁止无限授权。
+- **RPC 护栏**：所有预演调用走 `guardedRpc`，写/签名方法在**发出请求前**拒绝（测试用假 fetch 证明不会触网）。
+- **viem 陷阱**：`decodeAbiParameters` 的 tuple 必须写成 `{ type: 'tuple', components: [...] }`，直接传 components 数组会报 `getArrayComponents` 的诡异错误；解码失败要包成自己的拒绝错误，避免把底层异常透出。
+- **BigInt 序列化**：calldata 快照含 BigInt，`res.json` 会抛 `JSON.stringify cannot serialize BigInt` → 统一走 `safeJson()`（BigInt → string）。
+- 编码一致性：M3 构造复用 M2 模拟器的编码函数，并用测试断言**逐字节一致**，避免「模拟和真实操作不是同一套 calldata」。

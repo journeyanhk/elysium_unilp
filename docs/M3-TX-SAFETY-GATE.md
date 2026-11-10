@@ -1,6 +1,6 @@
 # M3 小额交易安全门禁（Transaction Safety Gate）
 
-> 版本：`M3-gate-1`（2026-11-10）｜ 代码：`backend/config/tx-gate.js`｜ 测试：`backend/tests/tx-gate.test.js`（10 条，全部通过）
+> 版本：`M3-gate-2`（2026-11-10，M3.1 补齐执行逻辑）｜ 代码：`backend/config/tx-gate.js` + `backend/lib/tx-gate-state.js` + `backend/lib/tx-parse.js`｜ 测试：`tests/tx-gate.test.js`、`tests/tx-parse.test.js`、`tests/tx-rpc-guard.test.js`、`tests/tx-build.test.js`（全部通过）
 >
 > **当前状态：全部关闭。** 未经下一轮 review，不得打开真实交易、签名、Approve、Permit2、mint、burn、collect 或 `modifyLiquidities`。
 
@@ -61,6 +61,29 @@
 | 池龄提示 | < 7 天 | 硬性红色警告，需显式确认 |
 
 ---
+
+## 4.1 限制的真实执行（M3.1 补齐）
+
+| 限制 | 执行方式 |
+|---|---|
+| 首笔 / 单笔 / 日额度 | `evaluateTxRequest` 逐项判断；日额度由 `tx_gate_attempts` 表实时聚合（进程重启不丢） |
+| 每分钟 / 每日笔数 | 同上，按时间窗口聚合 |
+| Gas 单价 **与总成本** | 同时校验 `maxGasPriceGwei` 与 `maxGasUsd`；**缺少 Gas 成本估算直接拒绝** |
+| 滑点 / minOut / 报价新鲜度 / 价格影响 / deadline | 逐项强制，无自动放宽分支 |
+| 熔断 | `lib/tx-gate-state.js`（Postgres，append-only）：`trip` 需原因，`clear` **必须**提供人工复核记录与操作人；`storeKind` 固定 `postgres`，测试禁止内存实现 |
+
+## 4.2 参数级白名单（三层：合约 → selector → calldata 语义）
+
+仅限制 selector 不够。`lib/tx-parse.js` 在**构造阶段**即解码并校验：
+
+- **ERC-20 `approve(spender, amount)`**：spender 只能是 PositionManager 或 Permit2；禁止无限授权（`2^256-1`）；金额必须 > 0 且 ≤ 本次 intent 金额；
+- **Permit2 `approve(token, spender, amount, expiration)`**：token 必须是本次目标代币；spender 必须是 PositionManager；金额 ≤ intent；有效期 ≤ 30 天且未过期；
+- **`modifyLiquidities(bytes, uint256)`**：解码 `unlockData` → actions 列表与参数，逐项校验：
+  - 只允许三种组合：组池 `MINT_POSITION + SETTLE_PAIR`、领费 `DECREASE_LIQUIDITY(0) + TAKE_PAIR`、撤池 `DECREASE_LIQUIDITY(>0) + TAKE_PAIR`；**顺序固定**；
+  - 未知 action、夹带 action（SWAP / BURN / SWEEP / CLOSE_CURRENCY / CLEAR_OR_TAKE 等）、组合与 intent 类型不符 → 一律拒绝；
+  - PoolKey 必须逐字段等于白名单池；tick 必须按 tickSpacing 对齐且 lower < upper；liquidity 方向与大小必须与 intent 一致；
+  - `amount0Max/amount1Max` 不得超过 intent 上限；`amount0Min/amount1Min` 不得低于 intent 下限；owner / recipient 必须是用户本人；
+  - deadline 不得过期、不得超过 30 分钟。
 
 ## 5. 允许的合约与函数（白名单，超出即拒绝）
 

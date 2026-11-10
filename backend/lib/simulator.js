@@ -69,21 +69,21 @@ const POOL_KEY_ABI = {
 };
 const MODIFY_ABI = parseAbi(['function modifyLiquidities(bytes unlockData, uint256 deadline)']);
 
-function encodeMintCalldata({ tickLower, tickUpper, liquidity, amount0Max, amount1Max, owner }) {
+function encodeMintCalldata({ tickLower, tickUpper, liquidity, amount0Max, amount1Max, owner, deadline = DEADLINE }) {
   const p1 = encodeAbiParameters(
     [POOL_KEY_ABI, { type: 'int24' }, { type: 'int24' }, { type: 'uint256' }, { type: 'uint128' }, { type: 'uint128' }, { type: 'address' }, { type: 'bytes' }],
     [POOL_KEY, tickLower, tickUpper, liquidity, amount0Max, amount1Max, owner, '0x']);
   const p2 = encodeAbiParameters([{ type: 'address' }, { type: 'address' }], [POOL_KEY.currency0, POOL_KEY.currency1]);
   const unlock = encodeAbiParameters([{ type: 'bytes' }, { type: 'bytes[]' }], ['0x020d', [p1, p2]]);
-  return encodeFunctionData({ abi: MODIFY_ABI, functionName: 'modifyLiquidities', args: [unlock, DEADLINE] });
+  return encodeFunctionData({ abi: MODIFY_ABI, functionName: 'modifyLiquidities', args: [unlock, deadline] });
 }
-function encodeRemoveCalldata({ tokenId, liquidity, amount0Min, amount1Min, recipient }) {
+function encodeRemoveCalldata({ tokenId, liquidity, amount0Min, amount1Min, recipient, deadline = DEADLINE }) {
   const p1 = encodeAbiParameters(
     [{ type: 'uint256' }, { type: 'uint256' }, { type: 'uint128' }, { type: 'uint128' }, { type: 'bytes' }],
     [BigInt(tokenId), liquidity, amount0Min, amount1Min, '0x']);
   const p2 = encodeAbiParameters([{ type: 'address' }, { type: 'address' }, { type: 'address' }], [POOL_KEY.currency0, POOL_KEY.currency1, recipient]);
   const unlock = encodeAbiParameters([{ type: 'bytes' }, { type: 'bytes[]' }], ['0x0111', [p1, p2]]);
-  return encodeFunctionData({ abi: MODIFY_ABI, functionName: 'modifyLiquidities', args: [unlock, DEADLINE] });
+  return encodeFunctionData({ abi: MODIFY_ABI, functionName: 'modifyLiquidities', args: [unlock, deadline] });
 }
 
 /** 本地兑换估算（含 1% 费率 + 跨 tick 走位） */
@@ -435,4 +435,8 @@ async function simulateRemove(input) {
   };
 }
 
-module.exports = { simulateMint, simulateRemove, quoteSwap, GAS_STATIC, gasNoteFromError, projectedBalances, DUST };
+module.exports = {
+  simulateMint, simulateRemove, quoteSwap, GAS_STATIC, gasNoteFromError, projectedBalances, DUST,
+  // 供 M3 只读预演复用（保证与 M2 模拟器使用完全相同的 calldata 布局）
+  encodeMintCalldata, encodeRemoveCalldata, POOL_KEY, POOL,
+};

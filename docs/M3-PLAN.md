@@ -33,7 +33,7 @@
 | 阶段 | 内容 | 是否含真实写操作 | 复核点 |
 |---|---|---|---|
 | **M3.0**（本次） | 实施计划 + 交易安全门禁代码化（`backend/config/tx-gate.js`）+ 门禁测试 + 文档 | ❌ 全关 | 本文档 + `docs/M3-TX-SAFETY-GATE.md` |
-| **M3.1** | 只读预演管线：交易构造（build-only）+ `eth_call` 模拟 + 链上状态一致性检查 + 审计表落库；**不签名、不广播** | ❌ | 复核预演输出与真实链上状态一致性 |
+| **M3.1** | 只读预演管线：交易构造（build-only）+ `eth_call` 模拟 + 链上状态一致性检查 + 审计表落库；**不签名、不广播** | ❌ | ✅ **已交付（见 §10）**，等待复核 |
 | **M3.2** | 交易开关评审：核对解锁条件、硬上限、熔断、审计、UI 文案 | ❌ | **本次 review 决定是否解锁** |
 | **M3.3** | 首笔小额交易（首笔小额模式上限 20 USD）：逐笔签名、逐笔复核 | ✅（受上限约束） | 首笔完成后单独复核，确认后才放宽到常规上限 |
 | **M3.4** | 常规手动操作（单笔 ≤ 100 USD、日 ≤ 300 USD、滑点 ≤ 1%） | ✅（受上限约束） | 逐笔审计抽查 |
@@ -143,6 +143,27 @@ tx_audit     审计（intent_id、用户确认时间、签名者地址、交易�
 **回滚**：`TX_GATE.enabled=false` + 白名单 `writeEnabled=false` + 前端 `WRITES_ENABLED=false`（一键全关）；已发出的交易无法回滚，只能通过后续手动操作处理，故上限与模拟前置是唯一防线。
 
 ---
+
+## 10. M3.1 交付记录（2026-11-10）
+
+对应 M3.0 review 的 8 项验收条件：
+
+| # | 验收条件 | 实现 | 证据 |
+|---|---|---|---|
+| 1 | 真实 `eth_call` 预演不能发送交易 | `lib/tx-rpc-guard.js` 只读方法白名单 + 明确禁止 `eth_sendTransaction` / `eth_sendRawTransaction` / `personal_sign` / `eth_signTypedData*` / `wallet_*`；请求发出前即拒绝 | `tests/tx-rpc-guard.test.js`（含「禁止方法不触发任何网络请求」断言 + 全后端静态扫描） |
+| 2 | build-only 不触发钱包签名 | 后端构造流程无任何钱包/签名依赖；返回值 `signed=false`、`broadcast=false`，且不含签名字段 | `tests/tx-build.test.js`（静态检查 `window.ethereum` / `createWalletClient` / `sendTransaction` 等） |
+| 3 | `modifyLiquidities` action parser 完成 | `lib/tx-parse.js`：解码 `unlockData` → actions + 参数；只允许 mint=`MINT_POSITION+SETTLE_PAIR`、collect=`DECREASE_LIQUIDITY(0)+TAKE_PAIR`、remove=`DECREASE_LIQUIDITY(>0)+TAKE_PAIR`；校验 PoolKey、tick 对齐、liquidity 方向、amount 上限/下限、owner/recipient、deadline；未知 action 与夹带 action 一律拒绝 | `tests/tx-parse.test.js` |
+| 4 | approve / Permit2 参数级限制 | ERC-20 `approve`：spender 仅限 PositionManager / Permit2、禁止无限授权、金额 ≤ intent；Permit2 `approve`：token 必须为目标代币、spender 必须为 PM、金额 ≤ intent、有效期 ≤ 30 天且未过期 | `tests/tx-parse.test.js` |
+| 5 | `assertTxAllowed` 真正执行 Gas / 日额度 / 频率限制 | 门禁重构为「纯函数 `evaluateTxRequest` + 持久化状态」，强制执行 `maxGasUsd`、`dailyMaxUsd`、`maxTxPerMinute`、`maxTxPerDay`、deadline | `tests/tx-gate.test.js`（直接调用真实 `assertTxAllowed` 的边界测试） |
+| 6 | killSwitch 真实触发与持久化 | `lib/tx-gate-state.js`（Postgres）：`tripKillSwitch`（必须给原因）/ `clearKillSwitch`（**必须给人工复核记录与操作人**）；当前状态 = 最后一条事件，进程重启不丢 | `tests/tx-gate.test.js`（含 `storeKind === 'postgres'` 断言，禁止内存实现） |
+| 7 | 审计字段补齐 | 新表 `tx_intents` / `tx_simulations` / `tx_audit` / `tx_gate_attempts` / `gate_kill_switch`（全部 append-only）；记录 chainId、目标合约、selector、calldata keccak256、解码后 actions、PoolKey 快照、预演区块号与 block hash、状态区块号、RPC 端点、gas、门禁判断与拒绝原因 | 实测：`build → simulate` 落库成功，广播尝试被记为 `rejected/GATE_CLOSED` |
+| 8 | 广播入口不存在可用路径 | `POST /api/tx/broadcast` 恒定返回 403 + 门禁拒绝原因，且文件中无任何发送代码 | 实测返回 `{"error":"交易门禁拒绝：M3.1 只读阶段不提供广播能力",...}`；`tests/tx-gate.test.js` 静态断言 |
+
+**新增接口（全部只读）**：`GET /api/tx/gate`、`POST /api/tx/preview`、`POST /api/tx/build`、`POST /api/tx/simulate`；`POST /api/tx/broadcast` 恒拒绝。
+
+**实测记录（真实链上）**：build 产出 `selector=0xdd46508f`、`actions=["MINT_POSITION","SETTLE_PAIR"]`、`calldataHash=0x8ee9a3db…`；simulate 在区块 3885286 执行 `eth_call`，因测试钱包未授权/余额不足而回滚（预期结果，说明预演真实走了链上执行路径），Gas 价格 0.5001 gwei 来自链上，`gasUsd` 因回滚无法估算 → 门禁会以「缺少 Gas 成本估算」拒绝放行。
+
+**仍未打开**：真实交易、签名、Approve、Permit2、mint、burn、collect、`modifyLiquidities` 全部保持关闭。
 
 ## 9. 本阶段复核点（请 review）
 

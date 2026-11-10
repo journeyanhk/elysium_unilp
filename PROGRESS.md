@@ -90,6 +90,24 @@
 
 **M3 边界**：在交易开关（M3.2）通过下一轮 review 前，不打开真实交易、签名、Approve、Permit2、mint、burn、collect 或 `modifyLiquidities`。M3.1 只做只读预演（构造 + `eth_call`），**不签名、不广播**。
 
+## M3.1 只读预演交付（2026-11-10）
+
+| 交付 | 内容 |
+|---|---|
+| `lib/tx-parse.js` | `modifyLiquidities` action 级解析（PoolKey / tick 对齐 / liquidity 方向 / amount 上下限 / owner·recipient / deadline；未知与夹带 action 拒绝）+ approve/Permit2 参数级白名单（spender、无限授权、token、有效期） |
+| `lib/tx-rpc-guard.js` | 只读 RPC 护栏：白名单方法 + 显式禁止 `eth_send*` / `personal_sign` / `eth_signTypedData*` / `wallet_*`；**请求发出前**拒绝并计数 |
+| `lib/tx-build.js` | build-only 构造（`signed=false`、`broadcast=false`）；V4 编码复用 M2 模拟器（逐字节一致） |
+| `lib/tx-simulate.js` | 只读预演：`eth_call` + `eth_estimateGas` + 余额/授权/代码预检 + 区块号与 block hash；全部走护栏 |
+| `lib/tx-gate-state.js` | 熔断与计数**持久化**（Postgres）：`trip` 需原因、`clear` 需人工复核记录与操作人；日额度/频率由 `tx_gate_attempts` 聚合 |
+| `config/tx-gate.js` | `M3-gate-2`：纯函数 `evaluateTxRequest` + 真实 `assertTxAllowed`；强制 Gas 成本、日额度、每分钟/每日笔数、deadline |
+| `routes/tx.js` | `GET /api/tx/gate`、`POST /api/tx/{preview,build,simulate}`（只读）；`POST /api/tx/broadcast` **恒定 403 拒绝** |
+| 数据库 | 新增 5 张 append-only 表：`tx_intents` / `tx_simulations` / `tx_audit` / `tx_gate_attempts` / `gate_kill_switch` |
+| 测试 | 62 → **104**（新增 tx-parse / tx-rpc-guard / tx-build / 门禁边界与持久化） |
+
+**实测**：build → `selector=0xdd46508f`、`actions=["MINT_POSITION","SETTLE_PAIR"]`、`calldataHash=0x8ee9a3db…`；simulate → 区块 3885286 真实 `eth_call`（测试钱包未授权，按预期回滚）、链上 Gas 价格 0.5001 gwei；广播尝试被记为 `rejected / GATE_CLOSED`；审计事件 build → simulate 已落库。
+
+**边界**：未签名、未广播、未 Approve、未 Permit2、未 mint/burn/collect/modifyLiquidities；`TX_GATE.enabled=false`、全部 `writeEnabled=false`、PM 保持 `pending-official`。
+
 ## 下一步（M3 预览）
 
 - 交易开关（官方确认 或 用户知情接受 + 首笔小额）
