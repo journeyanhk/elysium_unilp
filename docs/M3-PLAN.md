@@ -304,12 +304,12 @@ review 结论：核心交易链路（签名/广播/Gas/类型/回执）**未再�
 | 项 | 根因 | 修复 | 证据 |
 |---|---|---|---|
 | 跳过机制失效 | 包装器写成 `nodeTest.test(name, options, runner)`，`options` 为 `undefined` 时 node **不执行 runner** → 用例变空用例静默通过；且 `before` 钩子抛错会把整文件判失败 | 修正注册方式（`options` 为函数/空时用两参数形式）；包装器接管 `before/after/beforeEach/afterEach`，数据库不可用时钩子不执行；表检查改用 `to_regclass()`（同一 search_path）；跳过原因含缺失表名/库/schema/search_path/修复办法 | `tests/helpers/db-required.js`；防退化测试 `tests/db-required-helper.test.js`（子进程实测：缺表必须 skipped；表齐全必须真正执行用例体） |
-| 完整环境不可复现 | 数据库接口限流约 400 请求/60 秒，全量测试（跨进程额度测试并发 5 子进程）接近该量级，连续重跑触发 429 | 新增 `scripts/run-backend-tests.sh`（串行 + 间隔 70s + 限流标注）；`bun run test:full`；测试侧 `tests/helpers/db-retry.js` 仅对 429 退避重试（生产 `lib/db.js` 不变） | 实测 3 次连续运行均 **259/259 fail=0** |
+| 完整环境不可复现 | 数据库接口限流约 400 请求/60 秒，全量测试（跨进程额度测试并发 5 子进程）接近该量级，连续重跑触发 429 | 新增 `scripts/run-backend-tests.sh`（串行 + 间隔 + 限流等待重跑；**同时要求 `fail=0` 与 `skipped=0`**）；`bun run test:full`；测试侧 `tests/helpers/db-retry.js` 仅对 429 退避重试，且**只用于只读调用**（生产 `lib/db.js` 不变） | 实测 3 次连续运行均 `fail=0` 且 `skipped=0` |
 | 缺表环境无补救手段 | 干净检出可能从未启动过后端 | 新增幂等建表脚本 `scripts/ensure-m3-tables.js`（`bun run db:ensure`），只建 8 张 M3 表；一致性由 `tests/db-schema-parity.test.js` 守护 | 实测幂等（重复执行「新建 0 张」，补列/索引 17/17 成功） |
 
-**测试**：后端 252 → **259**（新增 4 条 schema 一致性 + 3 条包装器防退化）；前端保持 **24**。
+**测试**：新增 4 条 schema 一致性 + 7 条包装器/钩子防退化（数量随迭代变化，**不作为验收口径**）。
 
-**两条验证路径**：方案一 `bun run test:full` → 3× fail=0（实测 259/259）；方案二 `TEST_REQUIRED_TABLES=__not_a_real_table__ node --test tests/*.test.js` → `fail=0 / skipped=22`（实测 pass=237）。
+**两条验证路径**：方案一 `bun run test:full` → 3× 均为 `fail=0` **且 `skipped=0`**（脚本在 `fail=0` 但 `skipped>0` 时明确判为「不是完整环境」，不计为通过）；方案二 `TEST_REQUIRED_TABLES=__not_a_real_table__ node --test tests/*.test.js` → `fail=0`、数据库用例全部 `skipped`。
 
 ## 22. M3.3 review 第六轮修复（清理钩子保护，2026-11-12）
 
@@ -323,6 +323,14 @@ review 结论：核心交易链路无新 P0；缺表环境仍有 **2 个失败**
 **验收口径（不再硬编码总数）**：完整环境 `fail=0` 且 `skipped=0`（连续 3 次）；缺表环境 `fail=0` 且数据库用例全部 `skipped`。
 
 **实测**：完整环境 3 次连续运行均 `fail=0`（`bun run test:full`，脚本在限流时等待重跑）；缺表环境 `fail=0`、数据库用例全部 `skipped`、无钩子失败；前端全部通过。
+
+## 23. review 第六轮：测试门禁防「假绿」（2026-11-12）
+
+| 项 | 问题 | 修复 | 证据 |
+|---|---|---|---|
+| **P0** 运行器只看 `fail` | 数据库缺表/连不上/限流导致用例被跳过时，`fail=0` 仍被计为 clean run → 「3 次全绿」可能是假绿 | 运行器解析 `fail` 与 `skipped`：仅 `fail=0 && skipped=0` 计为通过；`fail=0 && skipped>0` → 明确判为「不是完整环境」且**不重跑**；只有「有失败且含 `RATE_LIMITED`」才等待重跑 | `scripts/run-backend-tests.sh`；用缺表环境跑该脚本会直接输出「不是完整环境」并以非 0 退出 |
+| **P1** 子进程自检不可复现 | 探针写在系统 `/tmp`，部分环境无法解析 `@surf-ai/sdk/db`，自检在进入包装器前就退出 | 探针目录移入 `backend/tests/.tmp/`；子进程设置 `NODE_PATH` 兜底；子进程先做 SDK 解析自检并写文件，父测试断言解析成功 | `tests/db-required-helper.test.js`（9 条，含「独立解析 SDK」「从项目外目录运行全绿」） |
+| **P1** 文档写死数量 | 提交说明/文档仍出现旧的测试总数，与当前仓库不一致 | 验收口径改为只看 `fail` / `skipped`，仓库内不再写死总数 | 全仓库检索确认无残留 |
 
 ## 9. 本阶段复核点（请 review）
 

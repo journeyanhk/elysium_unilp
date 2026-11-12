@@ -220,10 +220,10 @@ review：核心交易链路未再发现 P0；阻塞项为测试门禁（独立�
 | 项 | 修复 | 证据 |
 |---|---|---|
 | 跳过机制失效 | 包装器注册方式修正（`undefined` 选项导致用例回调不执行）+ 接管钩子 + `to_regclass` 检查 + 详细跳过原因 | 防退化测试 `tests/db-required-helper.test.js` |
-| 完整环境不可复现 | `scripts/run-backend-tests.sh`（串行 + 间隔 70s + 限流标注）、`bun run test:full`、测试侧 429 退避重试 | 连跑 3 次均 **259/259 fail=0** |
+| 完整环境不可复现 | `scripts/run-backend-tests.sh`（串行 + 间隔 + 限流等待重跑 + **同时要求 `fail=0` 与 `skipped=0`**）、`bun run test:full`、测试侧 429 退避重试（仅只读） | 连跑 3 次均为 `fail=0` 且 `skipped=0` |
 | 缺表无补救 | 幂等建表脚本 `bun run db:ensure` + schema 一致性守护测试 | 幂等实测通过 |
 
-缺表环境实测：`pass=237 / fail=0 / skipped=22`。前端 24/24。开关状态不变。
+缺表环境实测：`fail=0`、数据库用例全部 `skipped`（无清理钩子失败）。前端全绿。开关状态不变。
 
 ## M3.3 review 第六轮修复（清理钩子保护，2026-11-12）
 
