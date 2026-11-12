@@ -1,0 +1,124 @@
+/**
+ * M3.3 Gas 计划与 Gas 绑定（review P0-2）。
+ *
+ * 问题：如果只在事后检查「gasPrice ≤ 5 gwei」，钱包仍可自行决定 gasLimit /
+ * maxFeePerGas / maxPriorityFeePerGas，可能出现：
+ *   - gasLimit 被抬得极高（配合钱包自行抬高的费用，实际支出远超预期）；
+ *   - 优先费被抬高；
+ *   - Gas 总成本突破 1 USD 上限。
+ *
+ * 方案：**在 simulate 阶段就把 Gas 参数固定下来**（固定余量、固定上限），
+ * 写进授权绑定；签名前用真实交易（或链上交易）的 Gas 参数与绑定逐项比对，
+ * 超出即拒绝 —— 不做任何事后补偿，也不允许「先签名再检查」。
+ *
+ * 本模块为纯函数（无网络、无数据库），可完整离线测试。
+ */
+const { TX_GATE } = require('../config/tx-gate');
+
+const GAS_PLAN_VERSION = 'M3.3-gas-1';
+
+/**
+ * 计算 Gas 计划（simulate 阶段调用一次，结果入库并进入授权绑定）。
+ * @returns {{ok:boolean, code?:string, reason?:string, plan?:object}}
+ */
+function computeGasPlan({ gasEstimate, gasPriceWei, hypeUsd, limits = TX_GATE.limits } = {}) {
+  const deny = (code, reason) => ({ ok: false, code, reason });
+
+  const est = gasEstimate != null ? Number(gasEstimate) : NaN;
+  if (!Number.isFinite(est) || est <= 0) return deny('GAS_ESTIMATE_MISSING', '缺少 eth_estimateGas 结果，无法确定 Gas 上限');
+  if (gasPriceWei == null) return deny('GAS_PRICE_MISSING', '缺少链上 Gas 价格，无法确定费用上限');
+  if (hypeUsd == null || !Number.isFinite(Number(hypeUsd))) return deny('HYPE_PRICE_MISSING', '缺少 HYPE 价格，无法校验 Gas 美元上限');
+
+  const marginBps = limits.gasLimitMarginBps != null ? Number(limits.gasLimitMarginBps) : 2500;
+  const minGasLimit = limits.minGasLimit != null ? Number(limits.minGasLimit) : 50000;
+  const gasLimit = Math.max(Math.ceil(est * (1 + marginBps / 10000)), minGasLimit);
+
+  const maxFeePerGasWei = BigInt(gasPriceWei);
+  const maxFeeGwei = Number(maxFeePerGasWei) / 1e9;
+  if (limits.maxGasPriceGwei != null && maxFeeGwei > limits.maxGasPriceGwei) {
+    return deny('GAS_PRICE_OVER', `链上 Gas 价格 ${maxFeeGwei.toFixed(4)} gwei 超过上限 ${limits.maxGasPriceGwei} gwei`);
+  }
+
+  const priorityCapWei = BigInt(Math.round((limits.maxPriorityFeeGwei != null ? Number(limits.maxPriorityFeeGwei) : 1) * 1e9));
+  const maxPriorityFeePerGasWei = maxFeePerGasWei < priorityCapWei ? maxFeePerGasWei : priorityCapWei;
+
+  const maxCostWei = BigInt(gasLimit) * maxFeePerGasWei;
+  const gasUsd = (Number(maxCostWei) / 1e18) * Number(hypeUsd);
+  if (limits.maxGasUsd != null && gasUsd > limits.maxGasUsd) {
+    return deny('GAS_USD_OVER', `Gas 最坏成本 ${gasUsd.toFixed(4)} USD 超过上限 ${limits.maxGasUsd} USD`);
+  }
+
+  return {
+    ok: true,
+    plan: {
+      version: GAS_PLAN_VERSION,
+      estimate: est,
+      marginBps,
+      gasLimit,
+      maxFeePerGasWei: maxFeePerGasWei.toString(),
+      maxPriorityFeePerGasWei: maxPriorityFeePerGasWei.toString(),
+      maxCostWei: maxCostWei.toString(),
+      gasUsd: Number(gasUsd.toFixed(6)),
+      hypeUsd: Number(hypeUsd),
+      at: new Date().toISOString(),
+    },
+  };
+}
+
+/**
+ * 签名前 Gas 核对：真实交易的 Gas 参数必须 **不超过** 授权绑定值。
+ * 绑定值缺失 → 拒绝（fail-closed）；无法获取 HYPE 价格 → 拒绝（不做事后补偿）。
+ *
+ * @param {{gasLimit?:number|bigint, maxFeePerGasWei?:bigint|null, maxPriorityFeePerGasWei?:bigint|null}} tx
+ * @param {object} binding 授权绑定（含 gasLimit / maxFeePerGas / maxPriorityFeePerGas / gasUsd）
+ * @param {object} limits  门禁上限
+ * @param {number|null} hypeUsd HYPE 价格（用于 Gas 美元上限复核）
+ */
+function checkGasAgainstBinding({ gasLimit, maxFeePerGasWei, maxPriorityFeePerGasWei } = {}, binding = null, limits = TX_GATE.limits, hypeUsd = null) {
+  const deny = (code, reason) => ({ ok: false, code, reason });
+  if (!binding || binding.gasLimit == null || binding.maxFeePerGas == null || binding.maxPriorityFeePerGas == null) {
+    return deny('GAS_BINDING_MISSING', '授权绑定缺少 Gas 参数（gasLimit / maxFeePerGas / maxPriorityFeePerGas），拒绝签名');
+  }
+  if (gasLimit == null) return deny('GAS_LIMIT_MISSING', '交易未携带 gasLimit，拒绝签名（不允许钱包自行决定）');
+  if (maxFeePerGasWei == null) return deny('GAS_PRICE_MISSING', '交易未携带 maxFeePerGas，拒绝签名（不允许钱包自行决定）');
+  if (maxPriorityFeePerGasWei == null) return deny('PRIORITY_FEE_MISSING', '交易未携带 maxPriorityFeePerGas，拒绝签名（不允许钱包自行决定）');
+
+  const limit = BigInt(gasLimit);
+  const boundLimit = BigInt(binding.gasLimit);
+  if (limit > boundLimit) return deny('GAS_LIMIT_OVER', `交易 gasLimit ${limit} 超过授权绑定 ${boundLimit}（禁止自行抬高）`);
+
+  const fee = BigInt(maxFeePerGasWei);
+  const boundFee = BigInt(binding.maxFeePerGas);
+  if (fee > boundFee) return deny('GAS_PRICE_OVER', `交易 maxFeePerGas ${fee} wei 超过授权绑定 ${boundFee} wei（禁止自行抬高）`);
+  const feeGwei = Number(fee) / 1e9;
+  if (limits.maxGasPriceGwei != null && feeGwei > limits.maxGasPriceGwei) {
+    return deny('GAS_PRICE_OVER', `交易 maxFeePerGas ${feeGwei.toFixed(4)} gwei 超过上限 ${limits.maxGasPriceGwei} gwei`);
+  }
+
+  const prio = BigInt(maxPriorityFeePerGasWei);
+  const boundPrio = BigInt(binding.maxPriorityFeePerGas);
+  if (prio > boundPrio) return deny('PRIORITY_FEE_OVER', `交易 maxPriorityFeePerGas ${prio} wei 超过授权绑定 ${boundPrio} wei（禁止自行抬高）`);
+  if (prio > fee) return deny('PRIORITY_FEE_ABOVE_MAX_FEE', `maxPriorityFeePerGas ${prio} wei 高于 maxFeePerGas ${fee} wei`);
+
+  if (hypeUsd == null || !Number.isFinite(Number(hypeUsd))) {
+    return deny('HYPE_PRICE_MISSING', '无法获取 HYPE 价格，无法复核 Gas 美元上限，拒绝签名');
+  }
+  const costWei = limit * fee;
+  const gasUsd = (Number(costWei) / 1e18) * Number(hypeUsd);
+  if (limits.maxGasUsd != null && gasUsd > limits.maxGasUsd) {
+    return deny('GAS_USD_OVER', `交易 Gas 最坏成本 ${gasUsd.toFixed(4)} USD 超过上限 ${limits.maxGasUsd} USD`);
+  }
+
+  return {
+    ok: true,
+    gas: {
+      gasLimit: limit.toString(),
+      maxFeePerGasWei: fee.toString(),
+      maxPriorityFeePerGasWei: prio.toString(),
+      gasUsd: Number(gasUsd.toFixed(6)),
+      bound: { gasLimit: boundLimit.toString(), maxFeePerGasWei: boundFee.toString(), maxPriorityFeePerGasWei: boundPrio.toString(), gasUsd: binding.gasUsd ?? null },
+    },
+  };
+}
+
+module.exports = { GAS_PLAN_VERSION, computeGasPlan, checkGasAgainstBinding };

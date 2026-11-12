@@ -246,3 +246,12 @@ UPDATE tx_gate_buckets SET tx_count = tx_count + 1
 - **同一 intent 只允许一笔广播**；再次操作必须重新 build 新 intent（重新模拟、重新授权、重新消费）。
 - **当前状态**：`TX_GATE.enabled=false`、`unlockRecord.path=null`、所有 `writeEnabled=false`、PM `pending-official`、
   **未生成解锁记录** → `/authorize` 与 `/broadcast` 恒 403。
+
+## Gas 绑定（M3.3 review P0-2）
+
+- **simulate 阶段固定**：`gasLimit = max(ceil(eth_estimateGas × (1 + limits.gasLimitMarginBps/10000)), limits.minGasLimit)`；
+  `maxFeePerGas = 链上 eth_gasPrice`（≤ `limits.maxGasPriceGwei`）；`maxPriorityFeePerGas = min(maxFeePerGas, limits.maxPriorityFeeGwei)`；
+  最坏 Gas 成本 `gasLimit × maxFeePerGas × HYPE 价格 ≤ limits.maxGasUsd`。计划落库并进入授权绑定（bindingHash）。
+- **签名前/事后核对**：真实交易（或链上交易）的 `gasLimit` / `maxFeePerGas` / `maxPriorityFeePerGas`
+  不得超过绑定值，优先费不得高于 maxFeePerGas；缺任一字段、绑定缺 Gas 字段、或无法获取 HYPE 价格 → **拒绝**。
+- **不做事后补偿**：Gas 超限一律在签名/广播前拒绝，不允许「先签名再看回执」。

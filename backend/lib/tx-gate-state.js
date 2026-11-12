@@ -353,7 +353,8 @@ async function consumeAuthorization({ attemptId, actor = 'user', db = dbQuerySaf
 async function loadLatestSimulation({ intentId, db = dbQuerySafe } = {}) {
   const { rows } = await db(
     `SELECT id, intent_id, sim_block_number, sim_block_hash, state_block_number, eth_call_ok,
-            gas_estimate, gas_price_gwei, gas_usd, sim_result_hash, created_at
+            gas_estimate, gas_price_gwei, gas_usd, sim_result_hash,
+            gas_limit, max_fee_per_gas_wei, max_priority_fee_per_gas_wei, gas_plan_version, created_at
        FROM tx_simulations
       WHERE intent_id = $1 AND eth_call_ok = 1
       ORDER BY id DESC LIMIT 1`, [Number(intentId)]
@@ -368,6 +369,10 @@ async function loadLatestSimulation({ intentId, db = dbQuerySafe } = {}) {
     gasEstimate: rows[0].gas_estimate,
     gasPriceGwei: rows[0].gas_price_gwei != null ? Number(rows[0].gas_price_gwei) : null,
     gasUsd: rows[0].gas_usd != null ? Number(rows[0].gas_usd) : null,
+    gasLimit: rows[0].gas_limit != null ? Number(rows[0].gas_limit) : null,
+    maxFeePerGasWei: rows[0].max_fee_per_gas_wei,
+    maxPriorityFeePerGasWei: rows[0].max_priority_fee_per_gas_wei,
+    gasPlanVersion: rows[0].gas_plan_version,
     simResultHash: rows[0].sim_result_hash,
     at: rows[0].created_at,
     createdAtMs: rows[0].created_at ? new Date(rows[0].created_at).getTime() : null,

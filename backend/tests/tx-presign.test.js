@@ -42,6 +42,8 @@ function simFixture(over = {}) {
   return {
     simulationId: 5, intentId: 77, simBlock: 3885001, simBlockHash: '0x' + 'ee'.repeat(32),
     quoteBlock: 3885000, gasEstimate: '420000', gasPriceGwei: 0.5, gasUsd: 0.02,
+    // M3.3 review P0-2：Gas 计划（gasLimit / maxFeePerGas / maxPriorityFeePerGas）必须存在
+    gasLimit: 525000, maxFeePerGasWei: '500000000', maxPriorityFeePerGasWei: '500000000',
     simResultHash: SIM_HASH, at: new Date(NOW).toISOString(), createdAtMs: NOW - 1000, ...over,
   };
 }
@@ -71,6 +73,14 @@ test('模拟结果过期 → 拒绝', () => {
   const b = buildOk({ simulation: { createdAtMs: NOW - 400 * 1000 } });
   assert.equal(b.ok, false);
   assert.match(b.reason, /已过期/);
+});
+
+test('模拟记录缺少 Gas 计划（gasLimit / maxFeePerGas / maxPriorityFeePerGas）→ 拒绝', () => {
+  for (const over of [{ gasLimit: null }, { maxFeePerGasWei: null }, { maxPriorityFeePerGasWei: null }]) {
+    const b = buildOk({ simulation: over });
+    assert.equal(b.ok, false, JSON.stringify(over));
+    assert.match(b.reason, /缺少 (gasLimit|maxFeePerGas|maxPriorityFeePerGas)/);
+  }
 });
 
 test('模拟记录缺少 simBlockHash / quoteBlock / simResultHash → 拒绝', () => {
@@ -115,6 +125,9 @@ test('权威记录完整且一致 → 通过，且 quoteBlock / simBlock / simBl
   assert.equal(b.current.simBlockHash, '0x' + 'ee'.repeat(32));
   assert.equal(b.current.simResultHash, SIM_HASH);
   assert.equal(b.current.minOut, '10:20');
+  assert.equal(b.current.gasLimit, 525000);
+  assert.equal(b.current.maxFeePerGas, '500000000');
+  assert.equal(b.current.maxPriorityFeePerGas, '500000000');
   assert.equal(b.current.amountUsd, 5);
   assert.equal(b.current.intentId, 77);
 });

@@ -27,6 +27,7 @@ const {
   evaluateReceipt, classifyBroadcastFailure, rawTxFingerprint, verifyRawTxAgainstBinding, verifyOnChainTxAgainstBinding,
 } = require('../lib/tx-broadcast');
 const { computeBinding, bindingHashOf } = require('../lib/tx-binding');
+const { computeGasPlan } = require('../lib/tx-gas');
 const { tripKillSwitch } = require('../lib/tx-gate-state');
 const { recordAttempt, loadGateState } = require('../lib/tx-gate-state');
 const simulator = require('../lib/simulator');
@@ -143,14 +144,27 @@ router.post('/simulate', async (req, res) => {
     });
     sim.intentUser = it.user_addr;
     sim.simulationFrom = simulationUser;
+
+    // M3.3 review P0-2：simulate 阶段就把 Gas 参数固定下来（进入授权绑定）
+    let hypeUsd = null;
+    try { hypeUsd = (await getPrices()).HYPE?.usd ?? null; } catch { hypeUsd = null; }
+    const plan = computeGasPlan({
+      gasEstimate: sim.gasEstimate,
+      gasPriceWei: sim.gasPriceGwei != null ? BigInt(Math.round(sim.gasPriceGwei * 1e9)) : null,
+      hypeUsd,
+    });
+    sim.gasPlan = plan.ok ? plan.plan : null;
+    sim.gasPlanError = plan.ok ? null : { code: plan.code, reason: plan.reason };
+    if (plan.ok) sim.gasUsd = plan.plan.gasUsd; // 以「Gas 最坏成本」为准（gasLimit × maxFeePerGas）
     sim.precheckBlockNumber = sim.precheck ? sim.precheck.block : null;
     sim.precheckBlockHash = sim.precheck ? sim.precheck.blockHash : null;
     try {
       await dbQuery(
         `INSERT INTO tx_simulations
            (chain_id, intent_id, sim_block_number, sim_block_hash, state_block_number, rpc_endpoint,
-            eth_call_ok, eth_call_result, gas_estimate, gas_price_gwei, gas_usd, precheck, local_estimate, deviation, sim_result_hash)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+            eth_call_ok, eth_call_result, gas_estimate, gas_price_gwei, gas_usd, precheck, local_estimate, deviation, sim_result_hash,
+            gas_limit, max_fee_per_gas_wei, max_priority_fee_per_gas_wei, gas_plan_version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
         [
           it.chain_id, intentId, sim.simBlockNumber, sim.simBlockHash, sim.stateBlockNumber, sim.rpcEndpoint,
           sim.ethCallOk ? 1 : 0, JSON.stringify({ result: sim.ethCallResult, revertReason: sim.revertReason }).slice(0, 4000),
@@ -161,6 +175,10 @@ router.post('/simulate', async (req, res) => {
             gasUsd: sim.gasUsd, simBlockNumber: sim.simBlockNumber, simBlockHash: sim.simBlockHash,
             precheckIssues: sim.precheck ? sim.precheck.issues : null,
           }),
+          sim.gasPlan ? sim.gasPlan.gasLimit : null,
+          sim.gasPlan ? sim.gasPlan.maxFeePerGasWei : null,
+          sim.gasPlan ? sim.gasPlan.maxPriorityFeePerGasWei : null,
+          sim.gasPlan ? sim.gasPlan.version : null,
         ]
       );
       await dbQuery(
@@ -180,7 +198,14 @@ router.post('/simulate', async (req, res) => {
     } catch (e) {
       sim.auditError = String(e.message).slice(0, 200);
     }
-    res.json(safeJson({ intentId, simulation: sim, notes: ['只读预演：eth_call / eth_estimateGas，未广播任何交易'] }));
+    res.json(safeJson({
+      intentId, simulation: sim,
+      gasPlan: sim.gasPlan,
+      notes: [
+        '只读预演：eth_call / eth_estimateGas，未广播任何交易',
+        'Gas 参数已在预演阶段锁定（gasLimit / maxFeePerGas / maxPriorityFeePerGas），签名时钱包不得自行抬高',
+      ],
+    }));
   } catch (e) {
     res.status(400).json({ error: String(e.message).slice(0, 400) });
   }
@@ -388,8 +413,11 @@ router.post('/authorize', async (req, res) => {
         quoteBlock: built.current.quoteBlock, simBlock: built.current.simBlock,
         simBlockHash: built.current.simBlockHash, simResultHash: built.current.simResultHash,
         actions: built.current.actions, poolId: built.current.poolId,
+        gasLimit: built.current.gasLimit, maxFeePerGas: built.current.maxFeePerGas,
+        maxPriorityFeePerGas: built.current.maxPriorityFeePerGas,
         slippageBps, hasMinOut: hasMinOut === true, gasPriceGwei: simulation.gasPriceGwei,
-        gasUsd: simulation.gasUsd, quoteAgeSec, priceImpactPct: null,
+        gasUsd: built.current.gasUsd != null ? built.current.gasUsd : simulation.gasUsd,
+        quoteAgeSec, priceImpactPct: null,
       });
     } catch (e) {
       const d = e.decision || { ok: false, code: e.code || 'AUTHORIZE_FAILED', reason: String(e.message) };
@@ -473,11 +501,14 @@ router.post('/broadcast', async (req, res) => {
 
   const binding = computeBinding({ ...built.current, calldataHash: it.calldata_hash });
   const rpcUrl = CHAIN.rpcEndpoints.filter((e) => e.enabled).sort((a, b) => (a.priority || 9) - (b.priority || 9))[0].url;
+  // Gas 美元上限复核需要 HYPE 价格；取不到 → 核对失败（fail-closed，不做事后补偿）
+  let hypeUsd = null;
+  try { hypeUsd = (await getPrices()).HYPE?.usd ?? null; } catch { hypeUsd = null; }
 
   let result;
   if (mode === 'wallet-sign-raw') {
-    // 发送前核对：签名交易必须与授权绑定完全一致
-    const check = await verifyRawTxAgainstBinding({ rawTx, binding, user: it.user_addr, limits: TX_GATE.limits });
+    // 发送前核对：签名交易必须与授权绑定完全一致（含 Gas 参数）
+    const check = await verifyRawTxAgainstBinding({ rawTx, binding, user: it.user_addr, limits: TX_GATE.limits, hypeUsd });
     if (!check.ok) {
       await tripKillSwitch({ reason: `签名交易与授权绑定不一致（${check.code}）：${check.reason}`, actor: 'broadcast-guard' }).catch(() => {});
       await dbQuery(`INSERT INTO tx_audit (chain_id, intent_id, event, user_addr, target_contract, selector, calldata_hash, payload)
@@ -488,7 +519,7 @@ router.post('/broadcast', async (req, res) => {
     result = await sendRawTransactionOnce({ rawTx, rpcUrl });
   } else {
     const tx = await fetchTxByHash({ txHash, rpcUrl });
-    const check = verifyOnChainTxAgainstBinding({ tx, binding, user: it.user_addr, limits: TX_GATE.limits });
+    const check = verifyOnChainTxAgainstBinding({ tx, binding, user: it.user_addr, limits: TX_GATE.limits, hypeUsd });
     if (!check.ok) {
       await tripKillSwitch({ reason: `链上交易与授权绑定不一致（${check.code}）：${check.reason}`, actor: 'broadcast-guard' }).catch(() => {});
       result = { ok: false, code: check.code, reason: check.reason, ambiguous: false };

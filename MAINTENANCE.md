@@ -187,3 +187,16 @@
 - **授权消费要有有效期**：消费后长时间不广播应失效（`broadcastConsumeMaxAgeSec`），避免「旧授权被拿来签新交易」。
 - **同一 intent 只允许一笔广播**：需要再次操作必须重新 build（重新模拟/授权/消费），避免复用同一 intent 反复广播。
 - **只保存 rawTx 指纹**：`tx_broadcasts` 不落原始签名数据，只存 `keccak256(rawTx)` 便于事后比对。
+
+## 2026-11-12（M3.3 review 第一轮）
+
+- **签名请求必须显式带 `from`**：`eth_signTransaction` 传 `from: undefined` 等于把「用哪个账户签名」交给钱包决定。
+  正确做法：`from` 显式传入 + 与钱包当前账户比对（大小写不敏感），且**在请求钱包之前**完成能离线完成的校验
+  （缺 from / 缺 Gas / 链 ID 不符 → 连只读查询都不发起）。
+- **Gas 参数要在签名前锁定**：只检查「gasPrice ≤ 上限」不够 —— 钱包仍可自行决定 gasLimit 与费用结构。
+  必须在 simulate 阶段固定 gasLimit / maxFeePerGas / maxPriorityFeePerGas 并写进授权绑定，签名前逐项比对
+  （超过绑定值即拒绝），Gas 美元上限用**最坏成本**（gasLimit × maxFeePerGas）计算并前置到签名前。
+- **不做事后补偿**：无法获取 HYPE 价格、绑定缺 Gas 字段等一律拒绝，不允许「先签名、回执再看」。
+- **前端测试**：`cd frontend && bun test`（bun 内置 TS 支持，测试文件 `frontend/src/lib/*.test.ts`）。
+  断言「校验失败时钱包方法调用次数为 0」，避免出现「先弹钱包再校验」的实现。
+- **viem 无法序列化 `maxPriorityFeePerGas > maxFeePerGas` 的交易**：该组合的检查用「链上交易事后核对」路径测试。

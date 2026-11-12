@@ -32,7 +32,10 @@ const BINDING = computeBinding({
   key: 'positionManager', intentType: 'mint', amountUsd: 5, deadline: 1794300600, minOut: '10:20',
   quoteBlock: 3885000, simBlock: 3885001, simBlockHash: '0x' + 'ee'.repeat(32), simResultHash: '0x' + '11'.repeat(32),
   actions: ['MINT_POSITION', 'SETTLE_PAIR'], poolId: '0x' + 'ff'.repeat(32),
+  // M3.3 review P0-2：Gas 参数进入绑定
+  gasLimit: 525000, maxFeePerGas: '500000000', maxPriorityFeePerGas: '500000000', gasUsd: 0.0105,
 });
+const HYPE_USD = 40; // 测试用 HYPE 价格（Gas 美元上限复核）
 const BINDING_HASH = bindingHashOf(BINDING);
 
 const OPEN_GATE = { enabled: true, version: 'M3-gate-4', unlockPath: 'user-informed-acceptance', killSwitchTripped: false, stateUnavailable: false };
@@ -112,60 +115,106 @@ test('广播失败分类：节点明确拒绝不熔断；结果未知必须熔�
 
 // ---------- 签名交易核对 ----------
 
-async function signTx({ to = PM, value = 0n, data = CALLDATA, chainId = CHAIN.id, gasPrice = 1_000_000_000n, account = TEST_ACCOUNT } = {}) {
+async function signTx({ to = PM, value = 0n, data = CALLDATA, chainId = CHAIN.id, gasPrice = 500_000_000n, gas = 500000n, priorityFee = null, account = TEST_ACCOUNT } = {}) {
   return account.signTransaction({
-    to, value, data, chainId, nonce: 1, gas: 500000n, maxFeePerGas: gasPrice, maxPriorityFeePerGas: gasPrice, type: 'eip1559',
+    to, value, data, chainId, nonce: 1, gas,
+    maxFeePerGas: gasPrice, maxPriorityFeePerGas: priorityFee != null ? priorityFee : gasPrice, type: 'eip1559',
   });
 }
 
-test('钱包签名的原始交易与授权绑定一致 → 通过（含发送方恢复）', async () => {
+test('钱包签名的原始交易与授权绑定一致 → 通过（含发送方恢复 + Gas 核对）', async () => {
   const rawTx = await signTx();
-  const r = await verifyRawTxAgainstBinding({ rawTx, binding: BINDING, user: TEST_ACCOUNT.address, limits: TX_GATE.limits });
+  const r = await verifyRawTxAgainstBinding({ rawTx, binding: BINDING, user: TEST_ACCOUNT.address, limits: TX_GATE.limits, hypeUsd: HYPE_USD });
   assert.equal(r.ok, true, r.reason);
   assert.equal(r.fields.to, PM.toLowerCase());
   assert.equal(r.fields.calldataHash, keccak256(CALLDATA));
   assert.equal(r.fields.selector, '0xdd46508f');
   assert.equal(String(r.fields.from), TEST_ACCOUNT.address.toLowerCase());
+  assert.equal(r.fields.gasLimit, '500000');
+  assert.equal(r.fields.maxFeePerGasWei, '500000000');
 });
 
 test('签名交易：链 / 合约 / 金额 / calldata / 发送方 任一不符 → 拒绝', async () => {
   const limits = TX_GATE.limits;
   const wrongChain = await signTx({ chainId: 1 });
-  assert.equal((await verifyRawTxAgainstBinding({ rawTx: wrongChain, binding: BINDING, user: TEST_ACCOUNT.address, limits })).code, 'CHAIN_MISMATCH');
+  assert.equal((await verifyRawTxAgainstBinding({ rawTx: wrongChain, binding: BINDING, user: TEST_ACCOUNT.address, limits, hypeUsd: HYPE_USD })).code, 'CHAIN_MISMATCH');
 
   const wrongTo = await signTx({ to: CONTRACTS.poolManager.address });
-  assert.equal((await verifyRawTxAgainstBinding({ rawTx: wrongTo, binding: BINDING, user: TEST_ACCOUNT.address, limits })).code, 'TO_MISMATCH');
+  assert.equal((await verifyRawTxAgainstBinding({ rawTx: wrongTo, binding: BINDING, user: TEST_ACCOUNT.address, limits, hypeUsd: HYPE_USD })).code, 'TO_MISMATCH');
 
   const wrongValue = await signTx({ value: 10n ** 15n });
-  assert.equal((await verifyRawTxAgainstBinding({ rawTx: wrongValue, binding: BINDING, user: TEST_ACCOUNT.address, limits })).code, 'VALUE_MISMATCH');
+  assert.equal((await verifyRawTxAgainstBinding({ rawTx: wrongValue, binding: BINDING, user: TEST_ACCOUNT.address, limits, hypeUsd: HYPE_USD })).code, 'VALUE_MISMATCH');
 
   const wrongData = await signTx({ data: '0xdd46508f' + '22'.repeat(64) });
-  assert.equal((await verifyRawTxAgainstBinding({ rawTx: wrongData, binding: BINDING, user: TEST_ACCOUNT.address, limits })).code, 'CALLDATA_MISMATCH');
+  assert.equal((await verifyRawTxAgainstBinding({ rawTx: wrongData, binding: BINDING, user: TEST_ACCOUNT.address, limits, hypeUsd: HYPE_USD })).code, 'CALLDATA_MISMATCH');
 
   const otherSender = await signTx({ account: OTHER_ACCOUNT });
-  assert.equal((await verifyRawTxAgainstBinding({ rawTx: otherSender, binding: BINDING, user: TEST_ACCOUNT.address, limits })).code, 'SENDER_MISMATCH');
+  assert.equal((await verifyRawTxAgainstBinding({ rawTx: otherSender, binding: BINDING, user: TEST_ACCOUNT.address, limits, hypeUsd: HYPE_USD })).code, 'SENDER_MISMATCH');
 });
 
 test('签名交易：钱包自填 Gas 价格超过门禁上限 → 拒绝（禁止自动放宽）', async () => {
   const expensive = await signTx({ gasPrice: BigInt(TX_GATE.limits.maxGasPriceGwei + 1) * 10n ** 9n });
-  const r = await verifyRawTxAgainstBinding({ rawTx: expensive, binding: BINDING, user: TEST_ACCOUNT.address, limits: TX_GATE.limits });
+  const r = await verifyRawTxAgainstBinding({ rawTx: expensive, binding: BINDING, user: TEST_ACCOUNT.address, limits: TX_GATE.limits, hypeUsd: HYPE_USD });
   assert.equal(r.code, 'GAS_PRICE_OVER');
 });
 
+// ---------- M3.3 review P0-2：Gas 参数篡改 ----------
+
+test('签名交易：gasLimit 被抬高 → 拒绝', async () => {
+  const raw = await signTx({ gas: 900000n }); // 绑定上限 525000
+  const r = await verifyRawTxAgainstBinding({ rawTx: raw, binding: BINDING, user: TEST_ACCOUNT.address, limits: TX_GATE.limits, hypeUsd: HYPE_USD });
+  assert.equal(r.code, 'GAS_LIMIT_OVER');
+  assert.match(r.reason, /禁止自行抬高/);
+});
+
+test('签名交易：maxFeePerGas 被抬高（但仍低于门禁 5 gwei 上限）→ 拒绝', async () => {
+  const raw = await signTx({ gasPrice: 2_000_000_000n }); // 2 gwei < 5 gwei，但 > 绑定 0.5 gwei
+  const r = await verifyRawTxAgainstBinding({ rawTx: raw, binding: BINDING, user: TEST_ACCOUNT.address, limits: TX_GATE.limits, hypeUsd: HYPE_USD });
+  assert.equal(r.code, 'GAS_PRICE_OVER');
+  assert.match(r.reason, /授权绑定/);
+});
+
+test('签名交易：maxPriorityFeePerGas 被抬高 → 拒绝；优先费高于 maxFeePerGas → 拒绝', async () => {
+  const high = await signTx({ gasPrice: 500_000_000n, priorityFee: 400_000_000n }); // 绑定 priority=0.5 gwei → 0.4 不超；改绑定对比
+  const r1 = await verifyRawTxAgainstBinding({ rawTx: high, binding: { ...BINDING, maxPriorityFeePerGas: '300000000' }, user: TEST_ACCOUNT.address, limits: TX_GATE.limits, hypeUsd: HYPE_USD });
+  assert.equal(r1.code, 'PRIORITY_FEE_OVER');
+  // 优先费高于 maxFeePerGas：viem 拒绝序列化这种交易，故用「链上交易事后核对」路径验证同一检查
+  const r2 = verifyOnChainTxAgainstBinding({
+    tx: { from: USER, to: PM, value: 0n, input: CALLDATA, chainId: CHAIN.id, gas: 500000n, maxFeePerGas: 100_000_000n, maxPriorityFeePerGas: 200_000_000n },
+    binding: BINDING, user: USER, limits: TX_GATE.limits, hypeUsd: HYPE_USD,
+  });
+  assert.equal(r2.code, 'PRIORITY_FEE_ABOVE_MAX_FEE');
+});
+
+test('签名交易：缺少 Gas 预估 / 绑定缺少 Gas 字段 / 无法获取 HYPE 价格 → 一律拒绝', async () => {
+  const noGas = await signTx({ gas: 500000n });
+  const r1 = await verifyRawTxAgainstBinding({ rawTx: noGas, binding: { ...BINDING, gasLimit: null }, user: TEST_ACCOUNT.address, limits: TX_GATE.limits, hypeUsd: HYPE_USD });
+  assert.equal(r1.code, 'GAS_BINDING_MISSING');
+  const r2 = await verifyRawTxAgainstBinding({ rawTx: noGas, binding: BINDING, user: TEST_ACCOUNT.address, limits: TX_GATE.limits, hypeUsd: null });
+  assert.equal(r2.code, 'HYPE_PRICE_MISSING');
+});
+
+test('签名交易：Gas 美元成本超过 1 USD → 拒绝（按 gasLimit × maxFeePerGas 最坏成本）', async () => {
+  // 绑定允许 525000 × 0.5 gwei = 2.625e14 wei ≈ 0.0002625 HYPE；把 HYPE 价格抬到 5000 USD → ≈1.31 USD
+  const raw = await signTx({ gas: 500000n });
+  const r = await verifyRawTxAgainstBinding({ rawTx: raw, binding: BINDING, user: TEST_ACCOUNT.address, limits: TX_GATE.limits, hypeUsd: 5000 });
+  assert.equal(r.code, 'GAS_USD_OVER');
+});
+
 test('非法 rawTx → 拒绝（不抛异常）', async () => {
-  assert.equal((await verifyRawTxAgainstBinding({ rawTx: null, binding: BINDING, user: USER })).code, 'RAW_TX_INVALID');
-  assert.equal((await verifyRawTxAgainstBinding({ rawTx: '0xzz', binding: BINDING, user: USER })).code, 'RAW_TX_INVALID');
-  const r = await verifyRawTxAgainstBinding({ rawTx: '0x02f8deadbeef', binding: BINDING, user: USER });
+  assert.equal((await verifyRawTxAgainstBinding({ rawTx: null, binding: BINDING, user: USER, hypeUsd: HYPE_USD })).code, 'RAW_TX_INVALID');
+  assert.equal((await verifyRawTxAgainstBinding({ rawTx: '0xzz', binding: BINDING, user: USER, hypeUsd: HYPE_USD })).code, 'RAW_TX_INVALID');
+  const r = await verifyRawTxAgainstBinding({ rawTx: '0x02f8deadbeef', binding: BINDING, user: USER, hypeUsd: HYPE_USD });
   assert.ok(['RAW_TX_PARSE_FAILED', 'RAW_TX_RECOVER_FAILED'].includes(r.code), r.code);
 });
 
 test('链上交易（钱包自行广播）事后核对：内容一致 → 通过；不一致 → 拒绝', () => {
-  const good = { from: USER, to: PM, value: 0n, input: CALLDATA, chainId: CHAIN.id, gasPrice: 500000000n };
-  const r = verifyOnChainTxAgainstBinding({ tx: good, binding: BINDING, user: USER, limits: TX_GATE.limits });
+  const good = { from: USER, to: PM, value: 0n, input: CALLDATA, chainId: CHAIN.id, gasPrice: 500000000n, gas: 500000n, maxFeePerGas: 500000000n, maxPriorityFeePerGas: 500000000n };
+  const r = verifyOnChainTxAgainstBinding({ tx: good, binding: BINDING, user: USER, limits: TX_GATE.limits, hypeUsd: HYPE_USD });
   assert.equal(r.ok, true, r.reason);
-  const bad = verifyOnChainTxAgainstBinding({ tx: { ...good, input: '0xdd46508f' + '33'.repeat(64) }, binding: BINDING, user: USER, limits: TX_GATE.limits });
+  const bad = verifyOnChainTxAgainstBinding({ tx: { ...good, input: '0xdd46508f' + '33'.repeat(64) }, binding: BINDING, user: USER, limits: TX_GATE.limits, hypeUsd: HYPE_USD });
   assert.equal(bad.code, 'CALLDATA_MISMATCH');
-  assert.equal(verifyOnChainTxAgainstBinding({ tx: null, binding: BINDING, user: USER }).code, 'ONCHAIN_TX_MISSING');
+  assert.equal(verifyOnChainTxAgainstBinding({ tx: null, binding: BINDING, user: USER, hypeUsd: HYPE_USD }).code, 'ONCHAIN_TX_MISSING');
 });
 
 test('交易指纹可复现（审计用，不保存原始签名数据）', async () => {
@@ -176,7 +225,7 @@ test('交易指纹可复现（审计用，不保存原始签名数据）', async
 
 // ---------- 回执核对 ----------
 
-const GOOD_TX = { from: USER, to: PM, value: 0n, input: CALLDATA, chainId: CHAIN.id, gasPrice: 500000000n };
+const GOOD_TX = { from: USER, to: PM, value: 0n, input: CALLDATA, chainId: CHAIN.id, gasPrice: 500000000n, gas: 500000n, maxFeePerGas: 500000000n, maxPriorityFeePerGas: 500000000n };
 function receiptFixture(over = {}) {
   return {
     transactionHash: '0x' + 'cd'.repeat(32), status: 'success', blockNumber: 3886000,

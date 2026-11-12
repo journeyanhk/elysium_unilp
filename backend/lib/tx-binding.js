@@ -33,6 +33,11 @@ function computeBinding(req = {}) {
     simResultHash: req.simResultHash ? String(req.simResultHash).toLowerCase() : null,
     actions: Array.isArray(req.actions) ? req.actions.map((a) => String(a)) : null,
     poolId: req.poolId ? String(req.poolId).toLowerCase() : null,
+    // M3.3 review P0-2：Gas 参数必须进入绑定（钱包不得自行决定 Gas）
+    gasLimit: req.gasLimit != null ? Number(req.gasLimit) : null,
+    maxFeePerGas: req.maxFeePerGas != null ? String(req.maxFeePerGas) : null,
+    maxPriorityFeePerGas: req.maxPriorityFeePerGas != null ? String(req.maxPriorityFeePerGas) : null,
+    gasUsd: req.gasUsd != null ? Number(req.gasUsd) : null,
   };
 }
 

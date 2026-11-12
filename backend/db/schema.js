@@ -134,6 +134,10 @@ exports.txSimulations = pgTable('tx_simulations', {
   gas_estimate: text('gas_estimate'),
   gas_price_gwei: text('gas_price_gwei'),
   gas_usd: text('gas_usd'),
+  gas_limit: integer('gas_limit'), // M3.3：签名前锁定的 Gas 上限
+  max_fee_per_gas_wei: text('max_fee_per_gas_wei'),
+  max_priority_fee_per_gas_wei: text('max_priority_fee_per_gas_wei'),
+  gas_plan_version: text('gas_plan_version'),
   precheck: text('precheck'), // 余额/授权预检（JSON）
   local_estimate: text('local_estimate'), // 本地估算（JSON）
   deviation: text('deviation'), // 与链上模拟的偏差（JSON）

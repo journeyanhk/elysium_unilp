@@ -12,6 +12,7 @@
  */
 const { parseTransaction, recoverTransactionAddress, keccak256, isHex } = require('viem');
 const { CHAIN } = require('../config/whitelist');
+const { checkGasAgainstBinding } = require('./tx-gas');
 
 const lower = (a) => String(a || '').toLowerCase();
 const gweiOf = (wei) => (wei == null ? null : Number(wei) / 1e9);
@@ -28,7 +29,7 @@ function _fail(code, reason, extra = {}) {
  * @param {string} user     intent 用户地址（交易的 from 必须等于它）
  * @param {object} limits   门禁上限（用于 Gas 价格复核）
  */
-function compareTxToBinding(tx = {}, binding = null, user = null, limits = {}) {
+function compareTxToBinding(tx = {}, binding = null, user = null, limits = {}, hypeUsd = null) {
   if (!binding) return _fail('BINDING_MISSING', '缺少授权绑定，无法核对交易内容');
   if (!tx.data || !isHex(tx.data)) return _fail('CALLDATA_MISSING', '交易缺少 calldata，无法核对');
 
@@ -64,12 +65,17 @@ function compareTxToBinding(tx = {}, binding = null, user = null, limits = {}) {
     return _fail('SENDER_MISMATCH', `交易发送方 ${tx.from} 与 intent 用户 ${user} 不一致（禁止代发）`);
   }
 
-  // 钱包自填费用复核：钱包可能自行抬高 Gas 价格，必须重新核对上限
+  // —— Gas 参数核对（M3.3 review P0-2）——
+  // gasLimit / maxFeePerGas / maxPriorityFeePerGas 必须 **不超过授权绑定值**；
+  // 绑定值缺失、或无法复核 Gas 美元上限 → 一律拒绝（不做任何事后补偿）。
+  const gas = checkGasAgainstBinding(
+    { gasLimit: tx.gasLimit, maxFeePerGasWei: tx.maxFeePerGasWei != null ? tx.maxFeePerGasWei : tx.gasPriceWei, maxPriorityFeePerGasWei: tx.maxPriorityFeePerGasWei },
+    binding, limits, hypeUsd
+  );
+  if (!gas.ok) return _fail(gas.code, gas.reason);
+
   const feeWei = tx.maxFeePerGasWei != null ? tx.maxFeePerGasWei : tx.gasPriceWei;
   const feeGwei = gweiOf(feeWei);
-  if (limits.maxGasPriceGwei != null && feeGwei != null && feeGwei > limits.maxGasPriceGwei) {
-    return _fail('GAS_PRICE_OVER', `交易 Gas 价格 ${feeGwei.toFixed(4)} gwei 超过门禁上限 ${limits.maxGasPriceGwei} gwei（禁止自动放宽）`);
-  }
 
   return {
     ok: true,
@@ -78,12 +84,16 @@ function compareTxToBinding(tx = {}, binding = null, user = null, limits = {}) {
       chainId, to: lower(tx.to), value: value.toString(), calldataHash: lower(calldataHash), selector,
       from: tx.from ? lower(tx.from) : null,
       gasPriceGwei: feeGwei != null ? Number(feeGwei.toFixed(6)) : null,
+      gasLimit: gas.gas.gasLimit,
+      maxFeePerGasWei: gas.gas.maxFeePerGasWei,
+      maxPriorityFeePerGasWei: gas.gas.maxPriorityFeePerGasWei,
+      gasUsd: gas.gas.gasUsd,
     },
   };
 }
 
 /** 校验「用户钱包签好但尚未广播」的原始交易（rawTx） */
-async function verifyRawTxAgainstBinding({ rawTx, binding, user, limits } = {}) {
+async function verifyRawTxAgainstBinding({ rawTx, binding, user, limits, hypeUsd = null } = {}) {
   if (!rawTx || !isHex(rawTx)) return _fail('RAW_TX_INVALID', '缺少合法的已签名原始交易（rawTx 必须是 0x 十六进制）');
   let parsed;
   try {
@@ -107,15 +117,18 @@ async function verifyRawTxAgainstBinding({ rawTx, binding, user, limits } = {}) 
       chainId: parsed.chainId,
       gasPriceWei: parsed.gasPrice ?? null,
       maxFeePerGasWei: parsed.maxFeePerGas ?? null,
+      maxPriorityFeePerGasWei: parsed.maxPriorityFeePerGas ?? null,
+      gasLimit: parsed.gas ?? null,
     },
     binding,
     user,
-    limits
+    limits,
+    hypeUsd
   );
 }
 
 /** 校验「已经上链的交易」（钱包自行广播的场景，事后核对） */
-function verifyOnChainTxAgainstBinding({ tx, binding, user, limits } = {}) {
+function verifyOnChainTxAgainstBinding({ tx, binding, user, limits, hypeUsd = null } = {}) {
   if (!tx) return _fail('ONCHAIN_TX_MISSING', '链上查不到该交易（可能尚未打包，或交易哈希错误）');
   return compareTxToBinding(
     {
@@ -127,10 +140,13 @@ function verifyOnChainTxAgainstBinding({ tx, binding, user, limits } = {}) {
       chainId: tx.chainId != null ? Number(tx.chainId) : null,
       gasPriceWei: tx.gasPrice ?? null,
       maxFeePerGasWei: tx.maxFeePerGas ?? null,
+      maxPriorityFeePerGasWei: tx.maxPriorityFeePerGas ?? null,
+      gasLimit: tx.gas != null ? tx.gas : null,
     },
     binding,
     user,
-    limits
+    limits,
+    hypeUsd
   );
 }
 
@@ -161,7 +177,7 @@ function verifyReceipt({ receipt, tx, binding, user, limits = {}, hypeUsd = null
   if (summary.status !== 'success') {
     return { ok: false, code: 'RECEIPT_REVERTED', reason: `交易回滚（status=${summary.status}）——必须触发熔断并人工复核`, receipt: summary };
   }
-  const content = verifyOnChainTxAgainstBinding({ tx, binding, user, limits });
+  const content = verifyOnChainTxAgainstBinding({ tx, binding, user, limits, hypeUsd });
   if (!content.ok) {
     return { ok: false, code: 'POST_BROADCAST_MISMATCH', reason: `链上交易内容与授权绑定不一致：${content.reason}`, receipt: summary, content };
   }

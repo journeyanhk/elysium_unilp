@@ -248,6 +248,19 @@ tx_audit     审计（intent_id、用户确认时间、签名者地址、交易�
 
 **实测（门禁关闭）**：`/authorize` → 403 `GATE_CLOSED`；`/broadcast`（两种方式 + 非法方式）→ 403 `GATE_CLOSED`；`/receipt` → 404；`/broadcasts` → 空；熔断仍为未触发；拒绝均有审计记录。
 
+## 17. M3.3 review 第一轮修复（P0-1 / P0-2，2026-11-12）
+
+| 项 | 问题 | 修复 | 证据 |
+|---|---|---|---|
+| **P0-1** | `eth_signTransaction` 未传 `from`，账户可能由钱包自行决定 | `WalletTx.from` 必填；签名/发送请求显式携带 `from`；两道校验（第一道不接触钱包：门禁 + `from` 合法 + chainId=99901 + Gas 齐全；第二道读钱包只读状态：`from` == 当前账户、钱包链 == 交易链）；不通过**不弹钱包**；后端保留签名恢复二次校验 | `frontend/src/lib/tx-sign.ts`；`frontend/src/lib/tx-sign.test.ts` 12 条（`cd frontend && bun test`） |
+| **P0-2** | Gas 参数未在签名前绑定，钱包可自行决定 gasLimit / 费用 | 新增 `lib/tx-gas.js`：`gasLimit = max(ceil(estimate × 1.25), 50000)`、`maxFeePerGas = eth_gasPrice`（≤5 gwei）、`maxPriorityFeePerGas = min(maxFee, 1 gwei)`、最坏 Gas 成本 ≤ 1 USD；simulate 落库 Gas 计划；绑定对象新增 4 个 Gas 字段（进入 bindingHash）；签名前/事后核对 gasLimit / maxFeePerGas / maxPriorityFeePerGas 不得超过绑定值，优先费 ≤ maxFee，缺字段或取不到 HYPE 价格 → 拒绝 | `tests/tx-gas.test.js` 10 条；`tests/tx-broadcast.test.js` +5；`tests/tx-presign.test.js` +1 |
+
+**首笔模式**：按 review 约定首笔只用 `wallet-sign-raw`（面板已标注 `wallet-sent` 首笔不建议）。
+
+**测试**：后端 210 → **226**；前端新增 12 条（`bun test`）。
+
+**实测（门禁关闭）**：simulate → Gas 计划 `gasLimit=50000 / maxFee=0.5 gwei / 最坏 0.0018 USD` 并落库；`/authorize` 与 `/broadcast` 仍恒 403；`/pre-sign-check` 对旧记录（缺 Gas 计划）fail-closed 拒绝；熔断未触发；夹具已清理。
+
 ## 9. 本阶段复核点（请 review）
 
 1. 门禁模型（双重门禁 + 解锁记录 + 熔断）是否足够；

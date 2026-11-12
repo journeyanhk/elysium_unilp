@@ -43,6 +43,10 @@ function buildPreSignCurrent({ intent, simulation, request = {}, decoded = null,
   if (!simulation.simBlockHash) return { ok: false, reason: '模拟记录缺少区块哈希，禁止签名' };
   if (simulation.quoteBlock == null) return { ok: false, reason: '模拟记录缺少状态/报价区块，禁止签名' };
   if (!simulation.simResultHash) return { ok: false, reason: '模拟记录缺少结果摘要（simResultHash），禁止签名' };
+  // M3.3 review P0-2：Gas 参数必须来自模拟记录（不得为空，也不得由钱包自行决定）
+  if (simulation.gasLimit == null) return { ok: false, reason: '模拟记录缺少 gasLimit（Gas 计划未生成），禁止签名' };
+  if (!simulation.maxFeePerGasWei) return { ok: false, reason: '模拟记录缺少 maxFeePerGas，禁止签名' };
+  if (!simulation.maxPriorityFeePerGasWei) return { ok: false, reason: '模拟记录缺少 maxPriorityFeePerGas，禁止签名' };
 
   const ageSec = simulation.createdAtMs != null ? Math.floor((nowMs - simulation.createdAtMs) / 1000) : null;
   if (ageSec == null) return { ok: false, reason: '无法判断模拟记录时间，禁止签名' };
@@ -79,6 +83,10 @@ function buildPreSignCurrent({ intent, simulation, request = {}, decoded = null,
     simResultHash: simulation.simResultHash,
     actions: decoded.actions || intentActions,
     poolId: intent.pool_id || null,
+    gasLimit: Number(simulation.gasLimit),
+    maxFeePerGas: simulation.maxFeePerGasWei,
+    maxPriorityFeePerGas: simulation.maxPriorityFeePerGasWei,
+    gasUsd: simulation.gasUsd != null ? Number(simulation.gasUsd) : null,
   };
   return { ok: true, current, simulation };
 }

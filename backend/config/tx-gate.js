@@ -66,6 +66,27 @@ const TX_GATE = {
     maxDeadlineSec: 1800, // deadline 不得超过 30 分钟
     simMaxAgeSec: 300, // 模拟结果有效期（签名前必须使用新鲜的成功模拟）
     broadcastConsumeMaxAgeSec: 180, // 授权消费后必须在 3 分钟内广播（超时需重新走完整流程）
+    // —— Gas 计划（M3.3 review P0-2）：签名前必须锁定 gasLimit / maxFeePerGas / maxPriorityFeePerGas ——
+    gasLimitMarginBps: 2500, // gasLimit = eth_estimateGas × (1 + 25%)，固定且文档化，不允许钱包自行决定
+    minGasLimit: 50000, // gasLimit 下限（避免预估偏低导致 out of gas；成本仍受 gasLimit × maxFee 约束）
+    maxPriorityFeeGwei: 1, // maxPriorityFeePerGas 上限（同时必须 ≤ maxFeePerGas）
+  },
+
+  /**
+   * Gas 绑定规则（实现见 lib/tx-gas.js）：
+   *   gasLimit        = max(ceil(estimate × (1 + gasLimitMarginBps/10000)), minGasLimit)
+   *   maxFeePerGas    = 链上 eth_gasPrice（必须 ≤ maxGasPriceGwei）
+   *   maxPriorityFee  = min(maxFeePerGas, maxPriorityFeeGwei)
+   *   Gas 美元上限     = gasLimit × maxFeePerGas × HYPE 价格 ≤ maxGasUsd
+   * 签名交易若 gasLimit / maxFeePerGas / maxPriorityFeePerGas 超过绑定值 → 直接拒绝（不做事后补偿）。
+   */
+  gasBinding: {
+    fields: ['gasLimit', 'maxFeePerGas', 'maxPriorityFeePerGas', 'gasUsd'],
+    rejectCodes: [
+      'GAS_ESTIMATE_MISSING', 'GAS_PRICE_MISSING', 'HYPE_PRICE_MISSING',
+      'GAS_LIMIT_MISSING', 'GAS_LIMIT_OVER', 'GAS_PRICE_OVER',
+      'PRIORITY_FEE_OVER', 'PRIORITY_FEE_ABOVE_MAX_FEE', 'GAS_USD_OVER',
+    ],
   },
 
   /**

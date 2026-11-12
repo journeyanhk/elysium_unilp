@@ -48,6 +48,8 @@ export default function SignBroadcastPanel({ address, chainId }: { address: stri
   const [intent, setIntent] = useState<Record<string, unknown> | null>(null);
   const [intentId, setIntentId] = useState<number | null>(null);
   const [simulation, setSimulation] = useState<Record<string, unknown> | null>(null);
+  const [gasPlan, setGasPlan] = useState<{ gasLimit: number; maxFeePerGasWei: string; maxPriorityFeePerGasWei: string; gasUsd: number } | null>(null);
+  const [gasPlanError, setGasPlanError] = useState<{ code: string; reason: string } | null>(null);
   const [authorization, setAuthorization] = useState<{ authorizationId: number; bindingHash: string } | null>(null);
   const [preSign, setPreSign] = useState<Record<string, unknown> | null>(null);
   const [consumed, setConsumed] = useState<{ authorizationId: number; bindingHash: string; consumedAt: string } | null>(null);
@@ -116,7 +118,8 @@ export default function SignBroadcastPanel({ address, chainId }: { address: stri
     if (data?.intentId) {
       setIntentId(data.intentId as number);
       setIntent((data.intent as Record<string, unknown>) ?? null);
-      setSimulation(null); setAuthorization(null); setPreSign(null); setConsumed(null); setBroadcast(null); setReceipt(null);
+      setSimulation(null); setGasPlan(null); setGasPlanError(null);
+      setAuthorization(null); setPreSign(null); setConsumed(null); setBroadcast(null); setReceipt(null);
     }
   }
 
@@ -124,6 +127,8 @@ export default function SignBroadcastPanel({ address, chainId }: { address: stri
     if (!intentId) return;
     const { data } = await call('simulate', { intentId, user: address }, '只读预演');
     if (data?.simulation) setSimulation(data.simulation as Record<string, unknown>);
+    setGasPlan((data?.gasPlan as typeof gasPlan) ?? null);
+    setGasPlanError((data?.simulation as Record<string, unknown>)?.gasPlanError as typeof gasPlanError ?? null);
   }
 
   async function doAuthorize() {
@@ -152,7 +157,21 @@ export default function SignBroadcastPanel({ address, chainId }: { address: stri
       note(String((e as Error).message), 'err');
       return;
     }
-    const tx = { to: String(intent.targetContract), value: '0', data: String(intent.calldata), chainId: Number(intent.chainId) };
+    if (!gasPlan) {
+      note('缺少预演锁定的 Gas 参数（请先完成第 2 步预演，且预演必须生成 Gas 计划）——拒绝签名', 'err');
+      return;
+    }
+    // from 与 Gas 参数全部显式传入：钱包不得自行决定账户或 Gas
+    const tx = {
+      from: address,
+      to: String(intent.targetContract),
+      value: '0',
+      data: String(intent.calldata),
+      chainId: Number(intent.chainId),
+      gas: `0x${BigInt(gasPlan.gasLimit).toString(16)}`,
+      maxFeePerGas: `0x${BigInt(gasPlan.maxFeePerGasWei).toString(16)}`,
+      maxPriorityFeePerGas: `0x${BigInt(gasPlan.maxPriorityFeePerGasWei).toString(16)}`,
+    };
     setBusy('钱包签名');
     try {
       if (signMode === 'wallet-sign-raw') {
@@ -162,7 +181,7 @@ export default function SignBroadcastPanel({ address, chainId }: { address: stri
         const { data } = await call('broadcast', { intentId, mode: 'wallet-sign-raw', rawTx, calldata: intent.calldata, to: intent.targetContract, value: '0' }, '后端核对并广播');
         if (data?.ok) setBroadcast({ broadcastId: data.broadcastId as number, txHash: data.txHash as string, mode: 'wallet-sign-raw' });
       } else {
-        const txHash = await sendViaWallet(pre, tx, address);
+        const txHash = await sendViaWallet(pre, tx);
         note(`钱包已广播：${txHash}`, 'ok');
         setBusy('');
         const { data } = await call('broadcast', { intentId, mode: 'wallet-sent', txHash, calldata: intent.calldata, to: intent.targetContract, value: '0' }, '后端事后核对');
@@ -300,10 +319,19 @@ export default function SignBroadcastPanel({ address, chainId }: { address: stri
             </label>
             <label className="flex items-center gap-1">
               <input type="radio" checked={signMode === 'wallet-sent'} onChange={() => setSignMode('wallet-sent')} />
-              钱包内确认并广播 → 后端事后核对
+              钱包内确认并广播 → 后端事后核对（首笔不建议：先广播后核对，无法撤回）
             </label>
           </div>
 
+          {gasPlan && (
+            <p className="text-[11px] text-zinc-400">
+              已锁定 Gas：gasLimit <span className="text-zinc-200">{gasPlan.gasLimit.toLocaleString()}</span> ·
+              maxFeePerGas <span className="text-zinc-200">{(Number(gasPlan.maxFeePerGasWei) / 1e9).toFixed(4)} gwei</span> ·
+              maxPriorityFee <span className="text-zinc-200">{(Number(gasPlan.maxPriorityFeePerGasWei) / 1e9).toFixed(4)} gwei</span> ·
+              最坏 Gas 成本 <span className="text-zinc-200">${gasPlan.gasUsd}</span>（钱包不得自行抬高）
+            </p>
+          )}
+          {gasPlanError && <p className="text-[11px] text-rose-300">Gas 计划未生成（{gasPlanError.code}）：{gasPlanError.reason} — 无法签名</p>}
           {blocked && <p className="text-[11px] text-amber-300">当前被拦截：{blocked}</p>}
           {gate && gate.killSwitchTripped && <p className="text-[11px] text-rose-300">熔断已触发：{gate.killSwitchReason || '原因未记录'} — 需人工复核后清除。</p>}
         </div>
