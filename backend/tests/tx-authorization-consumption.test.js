@@ -8,7 +8,8 @@
  *   [x] 非 allowed 记录不可消费
  *   [x] 用户不匹配 / 绑定哈希不匹配 → 查不到授权
  */
-const test = require('node:test');
+// 需要数据库：缺表时逐条跳过并提示（见 tests/helpers/db-required.js）
+const test = require('./helpers/db-required');
 const assert = require('node:assert');
 
 const { dbQuery } = require('@surf-ai/sdk/db');

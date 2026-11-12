@@ -7,7 +7,8 @@
  *
  * 另外验证：重复 release 无副作用（唯一 reservation id + 条件更新）。
  */
-const test = require('node:test');
+// 需要数据库：缺表时逐条跳过并提示（见 tests/helpers/db-required.js）
+const test = require('./helpers/db-required');
 const assert = require('node:assert');
 const path = require('node:path');
 const { execFile } = require('node:child_process');

@@ -1,6 +1,6 @@
 # 「KNTQ/HYPE LP 管理器」技术方案与开发计划（v0.4.1）
 
-> 状态：v0.6.0 · M0 已合并 · M1 已合并 · **M2 已通过 review 并合并（合并提交 `dc4541c`）** · **M3 规划已提交（写操作全关）**
+> 状态：v0.6.1 · M0 已合并 · M1 已合并 · **M2 已通过 review 并合并（合并提交 `dc4541c`）** · **M3 规划已提交（写操作全关）**
 > 更新日期：2026-11-10
 > 协作：每阶段一个 PR（review 通过再进下一阶段）；提交署名 xnananx；仓库公开（不含任何密钥）
 > 关联材料：uploads/ 两份分析文档（Elysium 可行性评估、目标是赚手续费应该如何选）
@@ -168,6 +168,7 @@
 - v0.3（2026-11-09）：锁定决策；接入远端仓库；新增 M6 部署与交付；首次推送。
 - v0.3.1（2026-11-09）：署名 xnananx；钱包 OKX 优先；VPS 完整部署方案；仓库保持公开；M0 启动。
 - v0.3.2（2026-11-09）：M0 修订 R1（依 review）：白名单读写分离（全部 writeEnabled=false）；PoolKey 补全（currency0/currency1/fee/tickSpacing/hooks + 排序规则）；PositionManager 结论降级为「接口面一致、实现等价性待 M2」；目标池状态改为 verified-parameters；BridgeRouter 降级为 verified-address 并限定核验范围；RPC 端点表述修正（failover 未启用 + 准入条件）；M1 头寸枚举改用 Transfer 事件索引；池龄 < 7 天列为硬性警告。
+- v0.6.1（2026-11-12）：**M3.3 review 第四轮修复**（开关仍全部关闭）。交易类型改为**缺失即拒绝**：`normalizeTxType()` 不再按 `maxFeePerGas` 推断 EIP-1559，缺失/`null`/未知类型码 → `TX_TYPE_MISSING`，已识别但非 EIP-1559 或带 legacy `gasPrice` → `TX_TYPE_MISMATCH`；前端两种签名方式显式声明 `type: '0x2'`。新增 `tests/helpers/db-required.js`：缺表环境（如未同步 schema 的检出）改为**逐条跳过并提示**，不再出现 22 条难懂失败；连接错误先重试 3 次。测试：后端 250 → **252**（稳定环境连跑 3 次全绿），前端 23 → **24**。
 - v0.6.0（2026-11-12）：**M3.3 review 第三轮修复**（开关仍全部关闭）。P0：`fetchTxByHash()` 补齐 `type` / `gas` / `maxPriorityFeePerGas` —— 之前字段遗漏会把**成功且正确的交易**在回执阶段判为内容不一致（`GAS_LIMIT_MISSING`）→ `verification_failed` → 误触发熔断；新增 `tests/tx-receipt-integration.test.js`（本地假节点 + 真实 JSON-RPC 载荷，11 条），并做了「移除修复即复现失败」的回归证明。观察项：签名前判定抽为纯函数 `evaluatePreSignAudit()`（服务端判定钱包账户/链一致性，审计全部失败原因）；前端要求签名载荷/快照/授权三处绑定哈希一致。测试：后端 234 → **250**，前端 22 → **23**。
 - v0.5.9（2026-11-12）：**M3.3 review 第二轮修复**（开关仍全部关闭）。P0-1：新增 `POST /api/tx/pre-sign-audit`（服务端重新读取门禁/熔断/授权状态 + 重新执行签名前核对 + 返回签名载荷 + 写审计快照，审计失败即拒绝）与 `GET /api/tx/authorization-state/:intentId`；前端每次签名前重新读取钱包账户/链与门禁状态，任何读取失败或判定不通过都不弹钱包。P0-2：Gas 参数由「不超过绑定」改为**严格等于绑定**（降低也拒绝，错误码区分），并禁止 legacy 与 EIP-1559 混用（`TX_TYPE_MISMATCH`）。P1：首笔模式服务端禁用 `wallet-sent`。测试：后端 226 → **234**，前端 12 → **22**。实测：`pre-sign-audit` 返回完整快照并写审计；`/broadcast` 仍恒 403；熔断未触发。
 - v0.5.8（2026-11-12）：**M3.3 review 第一轮修复**（两个 P0，开关仍全部关闭）。P0-1：签名请求显式携带 `from` 并校验等于钱包当前账户（两道校验，第一道不接触钱包），后端保留签名恢复二次校验；前端新增测试 12 条（`cd frontend && bun test`）。P0-2：新增 `lib/tx-gas.js` 在 simulate 阶段固定 `gasLimit / maxFeePerGas / maxPriorityFeePerGas` 并落库，Gas 字段进入授权绑定，签名前/事后核对不得超过绑定值（含 Gas 美元上限前置与 HYPE 价格缺失时 fail-closed）；新增测试 `tests/tx-gas.test.js` 10 条 + 广播/预签各若干。后端测试 210 → **226**。实测：Gas 计划 `gasLimit=50000 / 0.5 gwei / 最坏 0.0018 USD` 落库；`/authorize`、`/broadcast` 恒 403；未生成解锁记录、未打开任何开关。

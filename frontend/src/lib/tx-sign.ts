@@ -227,6 +227,7 @@ export async function signTransactionOnly(pre: SignPreconditions, tx: WalletTx):
         gas: tx.gas,
         maxFeePerGas: tx.maxFeePerGas,
         maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
+        type: '0x2', // 显式 EIP-1559：不允许钱包降级为 legacy（后端也会核对类型）
         chainId: `0x${tx.chainId.toString(16)}`,
       }],
     })) as string | { raw?: string };
@@ -259,6 +260,7 @@ export async function sendViaWallet(pre: SignPreconditions, tx: WalletTx): Promi
       gas: tx.gas,
       maxFeePerGas: tx.maxFeePerGas,
       maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
+      type: '0x2', // 显式 EIP-1559（后端事后核对类型，缺失或降级都会被拒绝）
     }],
   })) as string;
   if (!hash) throw new Error('钱包未返回交易哈希');

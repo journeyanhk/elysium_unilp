@@ -203,6 +203,16 @@
 
 测试：后端 234 → **250**；前端 22 → **23**。实测：不存在的交易哈希查回执 → pending、不熔断、状态不变、审计 `receipt-pending`。开关状态不变。
 
+## M3.3 review 第四轮修复（2026-11-12）
+
+| 项 | 修复 | 证据 |
+|---|---|---|
+| 交易类型 fail-closed | `normalizeTxType()` 不再推断：缺失/`null`/未知 → `TX_TYPE_MISSING`；legacy/EIP-2930/带 `gasPrice` → `TX_TYPE_MISMATCH` | `tests/tx-gas.test.js` + 回执集成测试 2 条 |
+| 前端显式类型 | 两种签名方式都带 `type: '0x2'` | 前端测试 |
+| 测试环境 | 缺表环境逐条跳过并提示（`tests/helpers/db-required.js`） | 稳定环境连跑 3 次 252/252 |
+
+测试：后端 250 → **252**；前端 23 → **24**。开关状态不变。
+
 ## 下一步（M3 预览）
 
 - 交易开关（官方确认 或 用户知情接受 + 首笔小额）

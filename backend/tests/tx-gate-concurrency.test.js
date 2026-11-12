@@ -4,7 +4,8 @@
  * 本文件对真实 Postgres 发起并发请求（命名空间隔离，跑完清理），
  * 验证「先读计数再判断」的竞态已被条件 UPDATE + 行锁消除。
  */
-const test = require('node:test');
+// 需要数据库：缺表时逐条跳过并提示（见 tests/helpers/db-required.js）
+const test = require('./helpers/db-required');
 const assert = require('node:assert');
 
 const { dbQuery } = require('@surf-ai/sdk/db');

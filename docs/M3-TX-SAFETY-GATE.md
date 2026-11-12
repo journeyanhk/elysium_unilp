@@ -291,3 +291,10 @@ UPDATE tx_gate_buckets SET tx_count = tx_count + 1
   `WALLET_CHAIN_MISMATCH` / `WALLET_CHAIN_MISSING`，并把全部失败原因写入审计快照。
 - 前端同时要求 `signing.bindingHash` == `snapshot.bindingHash` == `authorization.bindingHash`；
   后端签名恢复地址校验（`SENDER_MISMATCH`）仍为最终兜底。
+
+## 交易类型必须显式且可识别（M3.3 review 第四轮）
+
+- `normalizeTxType()` **只做归一化，不做推断**：`type` 缺失 / `null` / 未知类型码 → `'unknown'`；
+- `'unknown'` → `TX_TYPE_MISSING`（节点未返回可识别类型）；已识别但非 EIP-1559（`legacy` / `eip2930`）
+  或同时携带 legacy `gasPrice` → `TX_TYPE_MISMATCH`；
+- 前端签名参数显式声明 `type: '0x2'`，后端仍独立核对类型（不依赖钱包行为）。

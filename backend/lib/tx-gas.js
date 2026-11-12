@@ -69,13 +69,18 @@ function computeGasPlan({ gasEstimate, gasPriceWei, hypeUsd, limits = TX_GATE.li
  * 交易类型归一化：Gas 计划基于 EIP-1559（maxFeePerGas + maxPriorityFeePerGas），
  * legacy（仅 gasPrice）交易**不得**与 EIP-1559 绑定混用。
  */
-function normalizeTxType(type, { hasMaxFeePerGas = false } = {}) {
+/**
+ * 交易类型归一化（M3.3 review 第四轮）。
+ *
+ * **不做任何推断**：交易类型已纳入安全边界，缺失或无法识别一律返回 'unknown'，
+ * 由调用方 fail-closed 拒绝（`TX_TYPE_MISSING`），而不是「有 maxFeePerGas 就当成 EIP-1559」。
+ */
+function normalizeTxType(type) {
   const t = String(type == null ? '' : type).toLowerCase();
   if (t === '0x2' || t === 'eip1559' || t === '2') return 'eip1559';
   if (t === '0x0' || t === 'legacy' || t === '0') return 'legacy';
   if (t === '0x1' || t === 'eip2930' || t === '1') return 'eip2930';
-  if (!t) return hasMaxFeePerGas ? 'eip1559' : 'legacy'; // 未标注时按是否携带 maxFeePerGas 推断
-  return t;
+  return 'unknown';
 }
 
 /**
@@ -97,7 +102,10 @@ function checkGasAgainstBinding({ gasLimit, maxFeePerGasWei, maxPriorityFeePerGa
   }
 
   // —— 交易类型必须与 Gas 计划一致（EIP-1559），禁止降级为 legacy ——
-  const txType = normalizeTxType(type, { hasMaxFeePerGas: maxFeePerGasWei != null });
+  const txType = normalizeTxType(type);
+  if (txType === 'unknown') {
+    return deny('TX_TYPE_MISSING', '交易未携带可识别的交易类型（拒绝：不根据其他字段推断类型，无法确认与 Gas 计划一致）');
+  }
   if (txType !== 'eip1559') {
     return deny('TX_TYPE_MISMATCH', `交易类型 ${txType} 与 Gas 计划（EIP-1559）不一致，拒绝签名（禁止 legacy 降级）`);
   }

@@ -174,6 +174,21 @@ describe('P0-1（第二轮）签名前必须重新读取服务端状态', () => 
     expect(bad.reason).toMatch(/绑定哈希不一致/);
   });
 
+  test('签名请求显式声明 type=0x2（不允许钱包降级为 legacy）', async () => {
+    await signTransactionOnly(OPEN, tx());
+    const call = calls.find((c) => c.method === 'eth_signTransaction');
+    expect(call).toBeDefined();
+    const params = (call!.params as Record<string, unknown>[])[0];
+    expect(params.type).toBe('0x2');
+    expect(params.from).toBe(ACCOUNT);
+    expect(params.maxFeePerGas).toBe('0x1dcd6500');
+    expect(params.gas).toBe('0xc350');
+    // 方式二（钱包广播）同样显式声明类型
+    await sendViaWallet(OPEN, tx());
+    const send = calls.find((c) => c.method === 'eth_sendTransaction');
+    expect((send!.params as Record<string, unknown>[])[0].type).toBe('0x2');
+  });
+
   test('首笔模式：强制 wallet-sign-raw（wallet-sent 被禁用）', () => {
     const v = evaluateFreshSignGate({ gate: freshGate, authorization: freshAuth, preSign: freshPre, requestedMode: 'wallet-sent' });
     expect(v.ok).toBe(true);

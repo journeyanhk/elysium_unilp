@@ -205,6 +205,22 @@ test('legacy 交易（节点返回 type 0x0 + gasPrice）→ TX_TYPE_MISMATCH �
   }
 });
 
+test('节点未返回交易类型（type 缺失）→ TX_TYPE_MISSING 且熔断，不推断为 EIP-1559', async () => {
+  const tx = { ...(await fetchTxByHash({ txHash: TX_HASH, rpcUrl })), type: null };
+  const e = evaluateReceipt({ receipt: normalizedReceipt(), tx, binding: BINDING, user: TEST_ACCOUNT.address, limits: TX_GATE.limits, hypeUsd: HYPE_USD });
+  assert.equal(e.ok, false);
+  assert.equal(e.contentCode, 'TX_TYPE_MISSING');
+  assert.equal(e.tripKillSwitch, true);
+  assert.ok(e.missingTxFields.includes('type'), '缺失字段清单应包含 type');
+});
+
+test('节点返回 type=0x2 → 通过（显式类型不被拒绝）', async () => {
+  const tx = await fetchTxByHash({ txHash: TX_HASH, rpcUrl });
+  assert.equal(tx.type, '0x2');
+  const e = evaluateReceipt({ receipt: normalizedReceipt(), tx, binding: BINDING, user: TEST_ACCOUNT.address, limits: TX_GATE.limits, hypeUsd: HYPE_USD });
+  assert.equal(e.ok, true, e.reason);
+});
+
 test('回滚交易 → RECEIPT_REVERTED 且熔断', async () => {
   const receipt = normalizedReceipt({ status: 'reverted' });
   const tx = await fetchTxByHash({ txHash: TX_HASH, rpcUrl });

@@ -13,7 +13,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { GAS_PLAN_VERSION, computeGasPlan, checkGasAgainstBinding } = require('../lib/tx-gas');
+const { GAS_PLAN_VERSION, computeGasPlan, checkGasAgainstBinding, normalizeTxType } = require('../lib/tx-gas');
 const { TX_GATE } = require('../config/tx-gate');
 
 const L = TX_GATE.limits;
@@ -114,8 +114,19 @@ test('交易类型：legacy（仅 gasPrice）不得与 EIP-1559 Gas 计划混用
   assert.equal(both.code, 'TX_TYPE_MISMATCH', '同时携带 legacy gasPrice → 拒绝');
   const eip = checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: PRICE, maxPriorityFeePerGasWei: PRICE, type: '0x2' }, BINDING, L, HYPE);
   assert.equal(eip.ok, true, eip.reason);
-  const inferred = checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: PRICE, maxPriorityFeePerGasWei: PRICE }, BINDING, L, HYPE);
-  assert.equal(inferred.ok, true, '未标注类型时按是否携带 maxFeePerGas 推断为 EIP-1559');
+  // 未标注类型：**不得推断**（M3.3 review 第四轮）→ fail-closed 拒绝
+  const missing = checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: PRICE, maxPriorityFeePerGasWei: PRICE }, BINDING, L, HYPE);
+  assert.equal(missing.code, 'TX_TYPE_MISSING');
+  const nullType = checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: PRICE, maxPriorityFeePerGasWei: PRICE, type: null }, BINDING, L, HYPE);
+  assert.equal(nullType.code, 'TX_TYPE_MISSING', 'type=null 同样拒绝（即使其他 EIP-1559 字段完整）');
+  const garbage = checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: PRICE, maxPriorityFeePerGasWei: PRICE, type: '0x7f' }, BINDING, L, HYPE);
+  assert.equal(garbage.code, 'TX_TYPE_MISSING', '无法识别的类型码 → 拒绝，不猜测');
+  assert.equal(normalizeTxType(undefined), 'unknown');
+  assert.equal(normalizeTxType(''), 'unknown');
+  assert.equal(normalizeTxType('0x2'), 'eip1559');
+  assert.equal(normalizeTxType('0x0'), 'legacy');
+  assert.equal(normalizeTxType('0x1'), 'eip2930');
+  assert.equal(normalizeTxType('0x3'), 'unknown');
 });
 
 test('签名前核对：缺少 Gas 字段 / 绑定缺 Gas / 无法复核美元上限 → 拒绝', () => {

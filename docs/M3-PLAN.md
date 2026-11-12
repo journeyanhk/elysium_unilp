@@ -286,6 +286,16 @@ tx_audit     审计（intent_id、用户确认时间、签名者地址、交易�
 **实测（门禁关闭）**：`/receipt`（不存在的交易哈希）→ `pending=true`、`code=RECEIPT_PENDING`、**不熔断**、状态保持 `broadcasted`、审计 `receipt-pending`；
 `/pre-sign-audit` 快照含全部失败原因与钱包一致性字段；熔断表最新事件仍为人工清除；全部夹具已清理。
 
+## 20. M3.3 review 第四轮修复（交易类型 fail-closed + 测试环境，2026-11-12）
+
+| 项 | 问题 | 修复 | 证据 |
+|---|---|---|---|
+| **P1/P0 边界** | `normalizeTxType()` 在 `type` 缺失时按 `maxFeePerGas` 推断为 EIP-1559，与 fail-closed 不一致 | `normalizeTxType()` 只归一化不推断：缺失 / `null` / 未知类型码 → `'unknown'` → **`TX_TYPE_MISSING`**；已识别但非 EIP-1559 或带 legacy `gasPrice` → `TX_TYPE_MISMATCH`（两码区分） | `tests/tx-gas.test.js`（缺失/null/未知/0x0/0x1/带 gasPrice/0x2 + `normalizeTxType` 断言）；`tests/tx-receipt-integration.test.js` 新增 2 条（缺 type → 熔断 + `missingTxFields`；0x2 → confirmed） |
+| 前端 | 签名参数未显式声明类型 | `eth_signTransaction` / `eth_sendTransaction` 均显式 `type: '0x2'`（禁止钱包静默降级） | 前端测试断言两种方式都带 `type` |
+| 测试环境 | 缺表环境出现 22 条难懂失败（正好是三个数据库文件） | 新增 `tests/helpers/db-required.js`：缺表时逐条**跳过并提示**（先启动后端同步 schema）；连接错误先重试 3 次 | 三个文件已接入；稳定环境连跑 3 次 **252/252** |
+
+**测试**：后端 250 → **252**；前端 23 → **24**。
+
 ## 9. 本阶段复核点（请 review）
 
 1. 门禁模型（双重门禁 + 解锁记录 + 熔断）是否足够；
