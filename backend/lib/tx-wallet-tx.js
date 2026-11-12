@@ -69,7 +69,13 @@ function compareTxToBinding(tx = {}, binding = null, user = null, limits = {}, h
   // gasLimit / maxFeePerGas / maxPriorityFeePerGas 必须 **不超过授权绑定值**；
   // 绑定值缺失、或无法复核 Gas 美元上限 → 一律拒绝（不做任何事后补偿）。
   const gas = checkGasAgainstBinding(
-    { gasLimit: tx.gasLimit, maxFeePerGasWei: tx.maxFeePerGasWei != null ? tx.maxFeePerGasWei : tx.gasPriceWei, maxPriorityFeePerGasWei: tx.maxPriorityFeePerGasWei },
+    {
+      gasLimit: tx.gasLimit,
+      maxFeePerGasWei: tx.maxFeePerGasWei,
+      maxPriorityFeePerGasWei: tx.maxPriorityFeePerGasWei,
+      type: tx.type ?? null,
+      gasPriceWei: tx.gasPriceWei ?? null,
+    },
     binding, limits, hypeUsd
   );
   if (!gas.ok) return _fail(gas.code, gas.reason);
@@ -84,6 +90,7 @@ function compareTxToBinding(tx = {}, binding = null, user = null, limits = {}, h
       chainId, to: lower(tx.to), value: value.toString(), calldataHash: lower(calldataHash), selector,
       from: tx.from ? lower(tx.from) : null,
       gasPriceGwei: feeGwei != null ? Number(feeGwei.toFixed(6)) : null,
+      txType: gas.gas.type,
       gasLimit: gas.gas.gasLimit,
       maxFeePerGasWei: gas.gas.maxFeePerGasWei,
       maxPriorityFeePerGasWei: gas.gas.maxPriorityFeePerGasWei,
@@ -115,6 +122,7 @@ async function verifyRawTxAgainstBinding({ rawTx, binding, user, limits, hypeUsd
       value: parsed.value,
       data: parsed.data,
       chainId: parsed.chainId,
+      type: parsed.type ?? null,
       gasPriceWei: parsed.gasPrice ?? null,
       maxFeePerGasWei: parsed.maxFeePerGas ?? null,
       maxPriorityFeePerGasWei: parsed.maxPriorityFeePerGas ?? null,
@@ -138,6 +146,7 @@ function verifyOnChainTxAgainstBinding({ tx, binding, user, limits, hypeUsd = nu
       value: tx.value ?? 0n,
       data: tx.input,
       chainId: tx.chainId != null ? Number(tx.chainId) : null,
+      type: tx.type ?? null,
       gasPriceWei: tx.gasPrice ?? null,
       maxFeePerGasWei: tx.maxFeePerGas ?? null,
       maxPriorityFeePerGasWei: tx.maxPriorityFeePerGas ?? null,

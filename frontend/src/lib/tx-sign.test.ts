@@ -5,7 +5,7 @@
  * 重点：任何校验不通过都**不得**调用钱包方法（用假钱包统计调用次数）。
  */
 import { describe, expect, test, beforeEach } from 'bun:test';
-import { sendViaWallet, signTransactionOnly, validateSigningRequest, validateSigningStatic } from './tx-sign';
+import { evaluateFreshSignGate, sendViaWallet, signTransactionOnly, validateSigningRequest, validateSigningStatic } from './tx-sign';
 import type { SignPreconditions, WalletTx } from './tx-sign';
 
 const ACCOUNT = '0x2cC17141A8753706Cf5557C9eE9EF91f8E995f53';
@@ -115,6 +115,65 @@ describe('P0-2 Gas 参数绑定', () => {
   });
 });
 
+describe('P0-1（第二轮）签名前必须重新读取服务端状态', () => {
+  const freshGate = { enabled: true, unlockPath: 'user-informed-acceptance', killSwitchTripped: false, stateUnavailable: false, firstTxMode: true };
+  const freshAuth = { status: 'consumed', bindingHash: '0x' + 'aa'.repeat(32), consumedAt: new Date().toISOString(), consumeAgeSec: 10, maxConsumeAgeSec: 180 };
+  const freshPre = { ok: true, reason: null, bindingHash: '0x' + 'aa'.repeat(32) };
+
+  test('全部新鲜且一致 → 允许签名', () => {
+    const v = evaluateFreshSignGate({ gate: freshGate, authorization: freshAuth, preSign: freshPre, expectedBindingHash: freshAuth.bindingHash });
+    expect(v.ok).toBe(true);
+    expect(v.pre.authorizationConsumed).toBe(true);
+  });
+
+  test('页面旧状态显示未熔断，但服务端最新状态已熔断 → 拒绝', () => {
+    const v = evaluateFreshSignGate({ gate: { ...freshGate, killSwitchTripped: true }, authorization: freshAuth, preSign: freshPre });
+    expect(v.ok).toBe(false);
+    expect(v.reason).toMatch(/熔断/);
+  });
+
+  test('门禁状态读取失败（null / 不可读）→ 拒绝', () => {
+    expect(evaluateFreshSignGate({ gate: null, authorization: freshAuth, preSign: freshPre }).ok).toBe(false);
+    expect(evaluateFreshSignGate({ gate: { ...freshGate, stateUnavailable: true }, authorization: freshAuth, preSign: freshPre }).reason).toMatch(/不可读/);
+    expect(evaluateFreshSignGate({ gate: { ...freshGate, enabled: false }, authorization: freshAuth, preSign: freshPre }).reason).toMatch(/门禁关闭/);
+  });
+
+  test('页面旧状态显示已消费，但服务端授权已失效 / 未消费 → 拒绝', () => {
+    expect(evaluateFreshSignGate({ gate: freshGate, authorization: null, preSign: freshPre }).reason).toMatch(/没有授权记录/);
+    expect(evaluateFreshSignGate({ gate: freshGate, authorization: { ...freshAuth, status: 'authorized' }, preSign: freshPre }).reason).toMatch(/未完成一次性消费/);
+    expect(evaluateFreshSignGate({ gate: freshGate, authorization: { ...freshAuth, consumeAgeSec: 400 }, preSign: freshPre }).reason).toMatch(/重新走完整流程/);
+    expect(evaluateFreshSignGate({ gate: freshGate, authorization: { ...freshAuth, consumeAgeSec: null }, preSign: freshPre }).reason).toMatch(/消费时间缺失/);
+  });
+
+  test('pre-sign-check 重新失败 → 拒绝', () => {
+    const v = evaluateFreshSignGate({ gate: freshGate, authorization: freshAuth, preSign: { ok: false, reason: '交易内容与授权绑定不一致' } });
+    expect(v.ok).toBe(false);
+    expect(v.reason).toMatch(/签名前核对未通过/);
+    expect(evaluateFreshSignGate({ gate: freshGate, authorization: freshAuth, preSign: null }).ok).toBe(false);
+  });
+
+  test('服务端绑定哈希与本地记录不一致（状态已变化）→ 拒绝', () => {
+    const v = evaluateFreshSignGate({ gate: freshGate, authorization: freshAuth, preSign: freshPre, expectedBindingHash: '0x' + 'bb'.repeat(32) });
+    expect(v.ok).toBe(false);
+    expect(v.reason).toMatch(/不一致/);
+  });
+
+  test('首笔模式：强制 wallet-sign-raw（wallet-sent 被禁用）', () => {
+    const v = evaluateFreshSignGate({ gate: freshGate, authorization: freshAuth, preSign: freshPre, requestedMode: 'wallet-sent' });
+    expect(v.ok).toBe(true);
+    expect(v.mode).toBe('wallet-sign-raw');
+    const v2 = evaluateFreshSignGate({ gate: { ...freshGate, firstTxMode: false }, authorization: freshAuth, preSign: freshPre, requestedMode: 'wallet-sent' });
+    expect(v2.mode).toBe('wallet-sent');
+  });
+
+  test('钱包账户在页面加载后切换 / 钱包链改变 → 拒绝（第二道校验）', () => {
+    // 页面记录的 from 是旧账户，钱包当前账户已切换
+    expect(validateSigningRequest({ pre: { ...OPEN }, tx: tx({ from: OTHER }), walletAccount: ACCOUNT, walletChainId: 99901 })).toMatch(/不一致/);
+    // 钱包链被切换
+    expect(validateSigningRequest({ pre: { ...OPEN }, tx: tx(), walletAccount: ACCOUNT, walletChainId: 1 })).toMatch(/钱包当前链/);
+  });
+});
+
 describe('门禁前置条件（不通过则不弹钱包）', () => {
   test('门禁关闭 / 无解锁记录 / 熔断未知 / 未消费授权 → 一律拒绝且不调用钱包', async () => {
     const cases: Array<Partial<SignPreconditions>> = [
@@ -143,5 +202,32 @@ describe('门禁前置条件（不通过则不弹钱包）', () => {
     expect(validateSigningStatic(OPEN, tx({ chainId: 1 }))).toMatch(/Elysium/);
     expect(validateSigningStatic({ ...OPEN, gateEnabled: false }, tx())).toMatch(/门禁关闭/);
     expect(validateSigningStatic(OPEN, tx())).toBe('');
+  });
+});
+
+describe('静态检查：面板签名前必须重新读取服务端状态', () => {
+  test('doSign 内先做新鲜状态核对，再调用钱包签名方法', () => {
+    const src = require('node:fs').readFileSync(new URL('../components/SignBroadcastPanel.tsx', import.meta.url), 'utf8');
+    const start = src.indexOf('async function doSign()');
+    const body = src.slice(start, src.indexOf('async function doReceipt()'));
+    const iFresh = body.indexOf('fetchFreshSignState(');
+    const iGate = body.indexOf('evaluateFreshSignGate(');
+    const iSign = body.indexOf('signTransactionOnly(');
+    const iSend = body.indexOf('sendViaWallet(');
+    expect(iFresh).toBeGreaterThan(-1);
+    expect(iGate).toBeGreaterThan(iFresh);
+    expect(iSign).toBeGreaterThan(iGate);
+    expect(iSend).toBeGreaterThan(iGate);
+    // 拒绝路径必须 return（不弹钱包）
+    expect(body).toMatch(/if \(!verdict\.ok[\s\S]{0,400}?return;/);
+    // 签名载荷必须来自服务端返回的 signing，而不是页面状态
+    expect(body).toMatch(/audit\.signing/);
+  });
+
+  test('首笔模式下 wallet-sent 选项被禁用（服务端同时强制）', () => {
+    const src = require('node:fs').readFileSync(new URL('../components/SignBroadcastPanel.tsx', import.meta.url), 'utf8');
+    expect(src).toMatch(/disabled=\{gate\?\.firstTxMode === true\}/);
+    const bc = require('node:fs').readFileSync(new URL('../../../backend/lib/tx-broadcast.js', import.meta.url), 'utf8');
+    expect(bc).toMatch(/MODE_DISABLED_IN_FIRST_TX/);
   });
 });

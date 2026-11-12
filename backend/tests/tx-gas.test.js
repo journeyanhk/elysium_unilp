@@ -72,33 +72,64 @@ test('Gas 计划：Gas 单价超上限 / 美元成本超上限 → 拒绝', () =
 // ---------- 签名前 Gas 核对 ----------
 
 const BINDING = { gasLimit: 50000, maxFeePerGas: PRICE.toString(), maxPriorityFeePerGas: PRICE.toString(), gasUsd: 0.001 };
+const EIP1559 = { type: 'eip1559' };
 
-test('签名前核对：等于绑定值 → 通过；低于绑定值 → 通过', () => {
-  const r = checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: PRICE, maxPriorityFeePerGasWei: PRICE }, BINDING, L, HYPE);
+test('签名前核对：严格等于绑定值 → 通过', () => {
+  const r = checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: PRICE, maxPriorityFeePerGasWei: PRICE, ...EIP1559 }, BINDING, L, HYPE);
   assert.equal(r.ok, true, r.reason);
+  assert.equal(r.gas.type, 'eip1559');
   assert.equal(r.gas.gasUsd <= L.maxGasUsd, true);
-  const lower = checkGasAgainstBinding({ gasLimit: 30000n, maxFeePerGasWei: 100_000_000n, maxPriorityFeePerGasWei: 100_000_000n }, BINDING, L, HYPE);
-  assert.equal(lower.ok, true, lower.reason);
 });
 
-test('签名前核对：gasLimit / maxFeePerGas / maxPriorityFeePerGas 任一超过绑定 → 拒绝', () => {
-  assert.equal(checkGasAgainstBinding({ gasLimit: 50001n, maxFeePerGasWei: PRICE, maxPriorityFeePerGasWei: PRICE }, BINDING, L, HYPE).code, 'GAS_LIMIT_OVER');
-  assert.equal(checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: PRICE + 1n, maxPriorityFeePerGasWei: PRICE }, BINDING, L, HYPE).code, 'GAS_PRICE_OVER');
-  assert.equal(checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: PRICE, maxPriorityFeePerGasWei: PRICE + 1n }, BINDING, L, HYPE).code, 'PRIORITY_FEE_OVER');
+test('签名前核对：Gas 参数**降低**也必须拒绝（严格等于，不是「不超过」）', () => {
+  assert.equal(checkGasAgainstBinding({ gasLimit: 49999n, maxFeePerGasWei: PRICE, maxPriorityFeePerGasWei: PRICE, ...EIP1559 }, BINDING, L, HYPE).code, 'GAS_LIMIT_MISMATCH');
+  assert.equal(checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: PRICE - 1n, maxPriorityFeePerGasWei: PRICE, ...EIP1559 }, BINDING, L, HYPE).code, 'MAX_FEE_MISMATCH');
+  assert.equal(checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: PRICE, maxPriorityFeePerGasWei: PRICE - 1n, ...EIP1559 }, BINDING, L, HYPE).code, 'PRIORITY_FEE_MISMATCH');
+});
+
+test('签名前核对：Gas 参数超过绑定值同样拒绝（错误码区分）', () => {
+  assert.equal(checkGasAgainstBinding({ gasLimit: 50001n, maxFeePerGasWei: PRICE, maxPriorityFeePerGasWei: PRICE, ...EIP1559 }, BINDING, L, HYPE).code, 'GAS_LIMIT_MISMATCH');
+  assert.equal(checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: PRICE + 1n, maxPriorityFeePerGasWei: PRICE, ...EIP1559 }, BINDING, L, HYPE).code, 'MAX_FEE_MISMATCH');
+  assert.equal(checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: PRICE, maxPriorityFeePerGasWei: PRICE + 1n, ...EIP1559 }, BINDING, L, HYPE).code, 'PRIORITY_FEE_MISMATCH');
+});
+
+test('签名前核对：优先费高于 maxFeePerGas → 拒绝（防御性检查，绑定异常时兜底）', () => {
+  const weird = { gasLimit: 50000, maxFeePerGas: '100000000', maxPriorityFeePerGas: '200000000', gasUsd: 0.001 };
+  const r = checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: 100_000_000n, maxPriorityFeePerGasWei: 200_000_000n, ...EIP1559 }, weird, L, HYPE);
+  assert.equal(r.code, 'PRIORITY_FEE_ABOVE_MAX_FEE');
+});
+
+test('签名前核对：绑定费用上限高于门禁单价上限 → 拒绝（绝对上限兜底）', () => {
+  const high = { gasLimit: 50000, maxFeePerGas: String((L.maxGasPriceGwei + 1) * 1e9), maxPriorityFeePerGas: String((L.maxGasPriceGwei + 1) * 1e9), gasUsd: 0.001 };
+  const r = checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: BigInt((L.maxGasPriceGwei + 1) * 1e9), maxPriorityFeePerGasWei: BigInt((L.maxGasPriceGwei + 1) * 1e9), ...EIP1559 }, high, L, HYPE);
+  assert.equal(r.code, 'GAS_PRICE_OVER');
+});
+
+test('交易类型：legacy（仅 gasPrice）不得与 EIP-1559 Gas 计划混用', () => {
+  const legacy = checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: PRICE, maxPriorityFeePerGasWei: PRICE, type: 'legacy' }, BINDING, L, HYPE);
+  assert.equal(legacy.code, 'TX_TYPE_MISMATCH');
+  const legacyRaw = checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: PRICE, maxPriorityFeePerGasWei: PRICE, type: '0x0' }, BINDING, L, HYPE);
+  assert.equal(legacyRaw.code, 'TX_TYPE_MISMATCH');
+  const both = checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: PRICE, maxPriorityFeePerGasWei: PRICE, type: 'eip1559', gasPriceWei: PRICE }, BINDING, L, HYPE);
+  assert.equal(both.code, 'TX_TYPE_MISMATCH', '同时携带 legacy gasPrice → 拒绝');
+  const eip = checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: PRICE, maxPriorityFeePerGasWei: PRICE, type: '0x2' }, BINDING, L, HYPE);
+  assert.equal(eip.ok, true, eip.reason);
+  const inferred = checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: PRICE, maxPriorityFeePerGasWei: PRICE }, BINDING, L, HYPE);
+  assert.equal(inferred.ok, true, '未标注类型时按是否携带 maxFeePerGas 推断为 EIP-1559');
 });
 
 test('签名前核对：缺少 Gas 字段 / 绑定缺 Gas / 无法复核美元上限 → 拒绝', () => {
-  assert.equal(checkGasAgainstBinding({ maxFeePerGasWei: PRICE, maxPriorityFeePerGasWei: PRICE }, BINDING, L, HYPE).code, 'GAS_LIMIT_MISSING');
-  assert.equal(checkGasAgainstBinding({ gasLimit: 50000n, maxPriorityFeePerGasWei: PRICE }, BINDING, L, HYPE).code, 'GAS_PRICE_MISSING');
-  assert.equal(checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: PRICE }, BINDING, L, HYPE).code, 'PRIORITY_FEE_MISSING');
-  assert.equal(checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: PRICE, maxPriorityFeePerGasWei: PRICE }, { ...BINDING, gasLimit: null }, L, HYPE).code, 'GAS_BINDING_MISSING');
-  assert.equal(checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: PRICE, maxPriorityFeePerGasWei: PRICE }, BINDING, L, null).code, 'HYPE_PRICE_MISSING');
+  assert.equal(checkGasAgainstBinding({ maxFeePerGasWei: PRICE, maxPriorityFeePerGasWei: PRICE, ...EIP1559 }, BINDING, L, HYPE).code, 'GAS_LIMIT_MISSING');
+  assert.equal(checkGasAgainstBinding({ gasLimit: 50000n, maxPriorityFeePerGasWei: PRICE, ...EIP1559 }, BINDING, L, HYPE).code, 'GAS_PRICE_MISSING');
+  assert.equal(checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: PRICE, ...EIP1559 }, BINDING, L, HYPE).code, 'PRIORITY_FEE_MISSING');
+  assert.equal(checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: PRICE, maxPriorityFeePerGasWei: PRICE, ...EIP1559 }, { ...BINDING, gasLimit: null }, L, HYPE).code, 'GAS_BINDING_MISSING');
+  assert.equal(checkGasAgainstBinding({ gasLimit: 50000n, maxFeePerGasWei: PRICE, maxPriorityFeePerGasWei: PRICE, ...EIP1559 }, BINDING, L, null).code, 'HYPE_PRICE_MISSING');
 });
 
 test('签名前核对：美元成本超上限 → 拒绝（即使未超过绑定值）', () => {
   // 绑定给足额度，但 HYPE 价格暴涨 → 最坏成本超 1 USD
   const big = { gasLimit: 4_000_000, maxFeePerGas: '4000000000', maxPriorityFeePerGas: '1000000000', gasUsd: 0.5 };
-  const r = checkGasAgainstBinding({ gasLimit: 4_000_000n, maxFeePerGasWei: 4_000_000_000n, maxPriorityFeePerGasWei: 1_000_000_000n }, big, L, 5000);
+  const r = checkGasAgainstBinding({ gasLimit: 4_000_000n, maxFeePerGasWei: 4_000_000_000n, maxPriorityFeePerGasWei: 1_000_000_000n, ...EIP1559 }, big, L, 5000);
   assert.equal(r.code, 'GAS_USD_OVER');
 });
 

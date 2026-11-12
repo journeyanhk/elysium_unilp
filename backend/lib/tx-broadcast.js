@@ -54,6 +54,11 @@ function preflightBroadcast({ gate = {}, authorization = null, bindingHash = nul
   if (!BROADCAST_MODES.includes(mode)) {
     return deny('MODE_NOT_ALLOWED', `不支持的广播方式「${mode || '(空)'}」（仅允许 ${BROADCAST_MODES.join(' / ')}）`);
   }
+  // 首笔模式：只允许「钱包只签名 → 后端核对 → 后端广播」
+  // （wallet-sent 是先广播后核对，内容有误无法撤回，首笔禁用）
+  if (gate.firstTxMode === true && mode === 'wallet-sent') {
+    return deny('MODE_DISABLED_IN_FIRST_TX', '首笔模式仅允许 wallet-sign-raw（钱包只签名 → 后端核对 → 后端单次广播）；wallet-sent 先广播后核对，首笔禁用');
+  }
   if (mode === 'wallet-sign-raw' && (!rawTx || typeof rawTx !== 'string')) {
     return deny('RAW_TX_MISSING', 'wallet-sign-raw 方式必须提供用户钱包签好的原始交易（rawTx）');
   }

@@ -255,3 +255,22 @@ UPDATE tx_gate_buckets SET tx_count = tx_count + 1
 - **签名前/事后核对**：真实交易（或链上交易）的 `gasLimit` / `maxFeePerGas` / `maxPriorityFeePerGas`
   不得超过绑定值，优先费不得高于 maxFeePerGas；缺任一字段、绑定缺 Gas 字段、或无法获取 HYPE 价格 → **拒绝**。
 - **不做事后补偿**：Gas 超限一律在签名/广播前拒绝，不允许「先签名再看回执」。
+
+## Gas 严格绑定与交易类型（M3.3 review 第二轮 P0-2）
+
+- 实际交易的 `gasLimit` / `maxFeePerGas` / `maxPriorityFeePerGas` 必须**严格等于**授权绑定值
+  （**降低也拒绝**，避免交易 A 的授权被降级后的交易 B 复用）：`GAS_LIMIT_MISMATCH` / `MAX_FEE_MISMATCH` / `PRIORITY_FEE_MISMATCH`。
+- 交易类型必须与 Gas 计划一致（EIP-1559）：legacy 交易或同时携带 `gasPrice` 的交易 → `TX_TYPE_MISMATCH`。
+- 绝对上限兜底仍然生效：`GAS_PRICE_OVER` / `PRIORITY_FEE_ABOVE_MAX_FEE` / `GAS_USD_OVER` / `HYPE_PRICE_MISSING`。
+
+## 签名前重新核对（M3.3 review 第二轮 P0-1）
+
+- 每次请求签名之前必须调用 `POST /api/tx/pre-sign-audit`：服务端重新读取门禁（含熔断与持久化来源）、
+  该 intent 的授权状态与消费时长、并重新执行完整签名前核对；通过时返回**签名载荷**供钱包使用。
+- 快照写入审计（`pre-sign-verified` / `pre-sign-rejected`）；**审计写入失败 → 拒绝签名**。
+- 前端任何读取失败（接口异常 / 非 200 / 状态不可读）→ 拒绝且**不弹钱包**。
+
+## 首笔模式（M3.3 review 第二轮 P1）
+
+- `firstTxMode=true` 时只允许 `wallet-sign-raw`（钱包只签名 → 后端核对 → 后端单次广播）；
+  `wallet-sent` 由**服务端**拒绝（`MODE_DISABLED_IN_FIRST_TX`），前端同时禁用该选项。

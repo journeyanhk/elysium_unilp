@@ -474,7 +474,7 @@ router.post('/broadcast', async (req, res) => {
   // 广播前置检查（纯函数，逐条拒绝原因都可在测试中复现）
   const authorization = await loadLatestAuthorization({ intentId, user: it.user_addr, includeConsumed: true });
   const pf = preflightBroadcast({
-    gate,
+    gate: { ...gate, firstTxMode: gate.firstTxMode === true },
     authorization: authorization ? { status: authorization.status, bindingHash: authorization.bindingHash, consumedAt: authorization.consumedAt } : null,
     bindingHash: built.ok ? bindingHashOf(computeBinding({ ...built.current, calldataHash: it.calldata_hash })) : null,
     mode, rawTx, txHash, limits: TX_GATE.limits,
@@ -621,6 +621,155 @@ router.post('/receipt', async (req, res) => {
     }));
   } catch (e) {
     res.status(400).json({ error: String(e.message).slice(0, 400) });
+  }
+});
+
+/**
+ * 签名前重新核对（M3.3 review 第二轮 P0-1）：
+ *   每次点击签名之前，前端必须调用本接口**重新读取服务端最新状态**，不得依赖页面上的旧状态。
+ *   服务端在此处重新读取：门禁状态（含熔断、持久化来源）、该 intent 的授权状态与消费时间、
+ *   以及完整的签名前核对（权威模拟记录 + 真实 calldata + 绑定比对），
+ *   并把这份快照写入审计（pre-sign-verified / pre-sign-rejected）。
+ *   本接口不签名、不广播；任何读取失败都返回 ok:false（fail-closed）。
+ */
+router.post('/pre-sign-audit', async (req, res) => {
+  try {
+    const { intentId, calldata = null, to = null, value = '0', walletAccount = null, walletChainId = null } = req.body || {};
+    if (!intentId) return res.status(400).json({ error: '缺少 intentId' });
+
+    // 1) 门禁状态（重新读取，绝不使用缓存）
+    let gate = null;
+    try { gate = await txGateStatus(); } catch (e) {
+      return res.status(503).json({ ok: false, code: 'GATE_STATE_UNAVAILABLE', reason: `门禁状态读取失败：${String(e.message).slice(0, 200)}`, notes: ['拒绝签名'] });
+    }
+
+    const { rows } = await dbQuery('SELECT * FROM tx_intents WHERE id = $1', [intentId]);
+    if (!rows.length) return res.status(404).json({ error: `intent ${intentId} 不存在` });
+    const it = rows[0];
+    const params = it.params ? JSON.parse(it.params) : {};
+    const key = it.key || whitelistKeyOf(it.target_contract);
+    const usedCalldata = calldata || it.calldata;
+
+    // 2) 授权状态（重新读取：可消费 / 已消费 / 已消费但超时）
+    let auth = null;
+    let authError = null;
+    try { auth = await loadLatestAuthorization({ intentId, user: it.user_addr, includeConsumed: true }); }
+    catch (e) { authError = String(e.message).slice(0, 200); }
+
+    const consumedMs = auth && auth.consumedAt ? new Date(auth.consumedAt).getTime() : null;
+    const consumeAgeSec = consumedMs != null && Number.isFinite(consumedMs) ? Math.floor((Date.now() - consumedMs) / 1000) : null;
+    const maxConsumeAge = TX_GATE.limits.broadcastConsumeMaxAgeSec;
+
+    // 3) 完整签名前核对（权威记录重建）
+    let check = { ok: false, reason: '未执行' };
+    let decoded = null;
+    try {
+      decoded = decodeForCheck({ calldata: usedCalldata, key, intent: { type: it.intent_type, params } });
+      const simulation = await loadLatestSimulation({ intentId });
+      const built = buildPreSignCurrent({
+        intent: { ...it, key }, simulation, request: { calldata: usedCalldata, to: to || it.target_contract, value, chainId: null },
+        decoded, simMaxAgeSec: TX_GATE.limits.simMaxAgeSec,
+      });
+      if (!built.ok) check = { ok: false, reason: built.reason, code: 'PRESIGN_REBUILD_FAILED' };
+      else if (!auth) check = { ok: false, reason: '该 intent 尚无授权记录（未经过 authorize）', code: 'NO_AUTHORIZATION' };
+      else check = preSignCheck({ authorization: auth, current: built.current, calldata: usedCalldata, decoded });
+    } catch (e) {
+      check = { ok: false, reason: `签名前核对异常：${String(e.message).slice(0, 200)}`, code: 'PRESIGN_ERROR' };
+    }
+
+    // 逐项判定（顺序即优先级；任一项不满足 → 拒绝签名）
+    let ok = true;
+    let reason = null;
+    const fail = (r) => { if (ok) { ok = false; reason = r; } };
+    if (!gate.enabled) fail('交易门禁关闭');
+    if (!gate.unlockPath) fail('缺少解锁记录');
+    if (gate.killSwitchTripped !== false) fail('熔断状态异常或已触发（未知 = 拒绝）');
+    if (gate.stateUnavailable) fail('门禁持久化状态不可读');
+    if (authError) fail(`授权状态读取失败：${authError}`);
+    if (!auth) fail('该 intent 尚无授权记录');
+    else if (auth.status !== 'consumed') fail(`授权状态为 ${auth.status}（未完成一次性消费）`);
+    if (auth && consumeAgeSec == null) fail('授权消费时间缺失');
+    if (auth && consumeAgeSec != null && consumeAgeSec > maxConsumeAge) {
+      fail(`授权消费已过去 ${consumeAgeSec}s（上限 ${maxConsumeAge}s），必须重新走完整流程`);
+    }
+    if (!check.ok) fail(check.reason || '签名前核对未通过');
+
+    // 签名用载荷：**签名那一刻**从权威记录取出的字节，前端不得使用页面旧状态
+    let signing = null;
+    if (ok) {
+      try {
+        const simulation = await loadLatestSimulation({ intentId });
+        const built = buildPreSignCurrent({
+          intent: { ...it, key }, simulation, request: { calldata: usedCalldata, to: to || it.target_contract, value, chainId: null },
+          decoded, simMaxAgeSec: TX_GATE.limits.simMaxAgeSec,
+        });
+        signing = built.ok ? {
+          chainId: built.current.chainId,
+          to: built.current.to,
+          value: built.current.value,
+          calldata: usedCalldata,
+          calldataHash: it.calldata_hash,
+          selector: built.current.selector,
+          gasLimit: built.current.gasLimit,
+          maxFeePerGas: built.current.maxFeePerGas,
+          maxPriorityFeePerGas: built.current.maxPriorityFeePerGas,
+          bindingHash: auth.bindingHash,
+        } : null;
+      } catch { signing = null; }
+    }
+
+    const snapshot = {
+      at: new Date().toISOString(),
+      gate: { version: gate.version, enabled: gate.enabled, unlockPath: gate.unlockPath, killSwitchTripped: gate.killSwitchTripped, stateSource: gate.stateSource, firstTxMode: gate.firstTxMode },
+      authorization: auth ? { id: auth.attemptId, status: auth.status, bindingHash: auth.bindingHash, consumedAt: auth.consumedAt, consumeAgeSec } : null,
+      bindingHash: auth ? auth.bindingHash : null,
+      preSign: { ok: Boolean(check.ok), reason: check.reason || null, changed: check.changed || null },
+      walletAccount: walletAccount || null,
+      walletChainId: walletChainId != null ? Number(walletChainId) : null,
+      intentUser: it.user_addr,
+    };
+    try {
+      await dbQuery(
+        `INSERT INTO tx_audit (chain_id, intent_id, event, user_addr, target_contract, selector, calldata_hash, payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [it.chain_id, intentId, ok ? 'pre-sign-verified' : 'pre-sign-rejected', it.user_addr, it.target_contract, it.selector, it.calldata_hash, JSON.stringify(snapshot)]
+      );
+    } catch (e) {
+      // 审计写入失败 → fail-closed（拒绝签名）
+      return res.status(503).json({ ok: false, code: 'PRESIGN_AUDIT_FAILED', reason: `签名前快照写入审计失败，拒绝签名：${String(e.message).slice(0, 200)}` });
+    }
+
+    res.json(safeJson({
+      ok, reason, snapshot, signing,
+      notes: [
+        '本接口只重新读取与核对，不签名、不广播',
+        ok ? '状态新鲜且一致，可以请求钱包签名（请使用返回的 signing 载荷，不要使用页面旧状态）' : '拒绝签名：状态过期/不一致',
+      ],
+    }));
+  } catch (e) {
+    res.status(400).json({ ok: false, error: String(e.message).slice(0, 400) });
+  }
+});
+
+/** 授权状态查询（只读，供前端在签名前重新读取） */
+router.get('/authorization-state/:intentId', async (req, res) => {
+  try {
+    const { rows } = await dbQuery('SELECT id, user_addr FROM tx_intents WHERE id = $1', [req.params.intentId]);
+    if (!rows.length) return res.status(404).json({ error: `intent ${req.params.intentId} 不存在` });
+    const auth = await loadLatestAuthorization({ intentId: req.params.intentId, user: rows[0].user_addr, includeConsumed: true });
+    const consumedMs = auth && auth.consumedAt ? new Date(auth.consumedAt).getTime() : null;
+    res.json(safeJson({
+      intentId: Number(req.params.intentId),
+      authorization: auth ? {
+        id: auth.attemptId, status: auth.status, bindingHash: auth.bindingHash, user: auth.user,
+        consumedAt: auth.consumedAt, consumedBy: auth.consumedBy,
+        consumeAgeSec: consumedMs != null && Number.isFinite(consumedMs) ? Math.floor((Date.now() - consumedMs) / 1000) : null,
+        maxConsumeAgeSec: TX_GATE.limits.broadcastConsumeMaxAgeSec,
+      } : null,
+      notes: ['只读：本接口不消费、不签名、不广播'],
+    }));
+  } catch (e) {
+    res.status(500).json({ error: String(e.message).slice(0, 300) });
   }
 });
 

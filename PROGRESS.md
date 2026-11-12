@@ -183,6 +183,16 @@
 
 测试：后端 210 → **226**；前端 12 条。开关状态不变（全部关闭）。
 
+## M3.3 review 第二轮修复（2026-11-12）
+
+| 项 | 修复 | 证据 |
+|---|---|---|
+| P0-1 状态新鲜度 | `POST /api/tx/pre-sign-audit`（服务端重读门禁/熔断/授权 + 重跑核对 + 返回签名载荷 + 审计快照，审计失败即拒绝）；`GET /api/tx/authorization-state/:intentId`；前端每次签名前重新读取，失败即拒绝不弹钱包 | 前端 22 条测试（含顺序与载荷来源静态断言） |
+| P0-2 Gas 严格绑定 | 必须**等于**绑定值（降低也拒绝）：`GAS_LIMIT_MISMATCH`/`MAX_FEE_MISMATCH`/`PRIORITY_FEE_MISMATCH`；legacy 与 EIP-1559 不得混用（`TX_TYPE_MISMATCH`） | `tests/tx-gas.test.js` 13 条 + 广播用例 |
+| P1 首笔禁用 wallet-sent | 服务端 `MODE_DISABLED_IN_FIRST_TX`；前端同步禁用 | `lib/tx-broadcast.js` + 配置 `broadcast.firstTx` |
+
+测试：后端 226 → **234**；前端 12 → **22**。开关状态不变（全部关闭）。
+
 ## 下一步（M3 预览）
 
 - 交易开关（官方确认 或 用户知情接受 + 首笔小额）

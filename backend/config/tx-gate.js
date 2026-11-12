@@ -82,10 +82,12 @@ const TX_GATE = {
    */
   gasBinding: {
     fields: ['gasLimit', 'maxFeePerGas', 'maxPriorityFeePerGas', 'gasUsd'],
+    strictEquality: true, // 实际交易的 Gas 参数必须**等于**绑定值（不是「不超过」）
+    txType: 'eip1559', // Gas 计划为 EIP-1559；legacy 交易一律拒绝（禁止降级混用）
     rejectCodes: [
       'GAS_ESTIMATE_MISSING', 'GAS_PRICE_MISSING', 'HYPE_PRICE_MISSING',
-      'GAS_LIMIT_MISSING', 'GAS_LIMIT_OVER', 'GAS_PRICE_OVER',
-      'PRIORITY_FEE_OVER', 'PRIORITY_FEE_ABOVE_MAX_FEE', 'GAS_USD_OVER',
+      'GAS_LIMIT_MISSING', 'GAS_LIMIT_MISMATCH', 'MAX_FEE_MISMATCH', 'PRIORITY_FEE_MISMATCH',
+      'GAS_PRICE_OVER', 'PRIORITY_FEE_ABOVE_MAX_FEE', 'GAS_USD_OVER', 'TX_TYPE_MISMATCH',
     ],
   },
 
@@ -104,6 +106,10 @@ const TX_GATE = {
       '链上交易内容与授权绑定不一致（事后核对）→ 熔断',
       '同一 intent 出现第二笔广播 → 拒绝',
     ],
+    firstTx: {
+      allowedModes: ['wallet-sign-raw'], // 首笔模式只允许「钱包只签名 → 后端核对 → 后端广播」
+      disabledModes: ['wallet-sent'], // 先广播后核对，内容有误无法撤回 → 首笔禁用（服务端强制）
+    },
     noAuto: [
       '不自动重发、不自动加速（speed-up）、不自动替换交易',
       '不自动放宽滑点、不自动降低 minOut',

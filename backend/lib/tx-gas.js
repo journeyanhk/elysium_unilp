@@ -66,30 +66,60 @@ function computeGasPlan({ gasEstimate, gasPriceWei, hypeUsd, limits = TX_GATE.li
 }
 
 /**
- * 签名前 Gas 核对：真实交易的 Gas 参数必须 **不超过** 授权绑定值。
- * 绑定值缺失 → 拒绝（fail-closed）；无法获取 HYPE 价格 → 拒绝（不做事后补偿）。
+ * 交易类型归一化：Gas 计划基于 EIP-1559（maxFeePerGas + maxPriorityFeePerGas），
+ * legacy（仅 gasPrice）交易**不得**与 EIP-1559 绑定混用。
+ */
+function normalizeTxType(type, { hasMaxFeePerGas = false } = {}) {
+  const t = String(type == null ? '' : type).toLowerCase();
+  if (t === '0x2' || t === 'eip1559' || t === '2') return 'eip1559';
+  if (t === '0x0' || t === 'legacy' || t === '0') return 'legacy';
+  if (t === '0x1' || t === 'eip2930' || t === '1') return 'eip2930';
+  if (!t) return hasMaxFeePerGas ? 'eip1559' : 'legacy'; // 未标注时按是否携带 maxFeePerGas 推断
+  return t;
+}
+
+/**
+ * 签名前 Gas 核对（M3.3 review 第二轮 P0-2）：
+ *   1) 交易类型必须是 EIP-1559（与 Gas 计划一致），legacy 交易直接拒绝；
+ *   2) gasLimit / maxFeePerGas / maxPriorityFeePerGas 必须 **严格等于** 授权绑定值
+ *      （不是「不超过」—— 否则交易 A 的授权可以被降级后的交易 B 复用）；
+ *   3) Gas 美元最坏成本仍需 ≤ 上限；绑定缺 Gas 字段或取不到 HYPE 价格 → 拒绝。
  *
- * @param {{gasLimit?:number|bigint, maxFeePerGasWei?:bigint|null, maxPriorityFeePerGasWei?:bigint|null}} tx
+ * @param {{gasLimit?:number|bigint, maxFeePerGasWei?:bigint|null, maxPriorityFeePerGasWei?:bigint|null, type?:string, gasPriceWei?:bigint|null}} tx
  * @param {object} binding 授权绑定（含 gasLimit / maxFeePerGas / maxPriorityFeePerGas / gasUsd）
  * @param {object} limits  门禁上限
  * @param {number|null} hypeUsd HYPE 价格（用于 Gas 美元上限复核）
  */
-function checkGasAgainstBinding({ gasLimit, maxFeePerGasWei, maxPriorityFeePerGasWei } = {}, binding = null, limits = TX_GATE.limits, hypeUsd = null) {
+function checkGasAgainstBinding({ gasLimit, maxFeePerGasWei, maxPriorityFeePerGasWei, type = null, gasPriceWei = null } = {}, binding = null, limits = TX_GATE.limits, hypeUsd = null) {
   const deny = (code, reason) => ({ ok: false, code, reason });
   if (!binding || binding.gasLimit == null || binding.maxFeePerGas == null || binding.maxPriorityFeePerGas == null) {
     return deny('GAS_BINDING_MISSING', '授权绑定缺少 Gas 参数（gasLimit / maxFeePerGas / maxPriorityFeePerGas），拒绝签名');
   }
+
+  // —— 交易类型必须与 Gas 计划一致（EIP-1559），禁止降级为 legacy ——
+  const txType = normalizeTxType(type, { hasMaxFeePerGas: maxFeePerGasWei != null });
+  if (txType !== 'eip1559') {
+    return deny('TX_TYPE_MISMATCH', `交易类型 ${txType} 与 Gas 计划（EIP-1559）不一致，拒绝签名（禁止 legacy 降级）`);
+  }
+  if (gasPriceWei != null) {
+    return deny('TX_TYPE_MISMATCH', '交易同时携带 legacy gasPrice，与 EIP-1559 Gas 计划不一致，拒绝签名');
+  }
+
   if (gasLimit == null) return deny('GAS_LIMIT_MISSING', '交易未携带 gasLimit，拒绝签名（不允许钱包自行决定）');
   if (maxFeePerGasWei == null) return deny('GAS_PRICE_MISSING', '交易未携带 maxFeePerGas，拒绝签名（不允许钱包自行决定）');
   if (maxPriorityFeePerGasWei == null) return deny('PRIORITY_FEE_MISSING', '交易未携带 maxPriorityFeePerGas，拒绝签名（不允许钱包自行决定）');
 
   const limit = BigInt(gasLimit);
   const boundLimit = BigInt(binding.gasLimit);
-  if (limit > boundLimit) return deny('GAS_LIMIT_OVER', `交易 gasLimit ${limit} 超过授权绑定 ${boundLimit}（禁止自行抬高）`);
+  if (limit !== boundLimit) {
+    return deny('GAS_LIMIT_MISMATCH', `交易 gasLimit ${limit} 与授权绑定 ${boundLimit} 不相等（Gas 参数必须与授权绑定完全一致）`);
+  }
 
   const fee = BigInt(maxFeePerGasWei);
   const boundFee = BigInt(binding.maxFeePerGas);
-  if (fee > boundFee) return deny('GAS_PRICE_OVER', `交易 maxFeePerGas ${fee} wei 超过授权绑定 ${boundFee} wei（禁止自行抬高）`);
+  if (fee !== boundFee) {
+    return deny('MAX_FEE_MISMATCH', `交易 maxFeePerGas ${fee} wei 与授权绑定 ${boundFee} wei 不相等（Gas 参数必须与授权绑定完全一致）`);
+  }
   const feeGwei = Number(fee) / 1e9;
   if (limits.maxGasPriceGwei != null && feeGwei > limits.maxGasPriceGwei) {
     return deny('GAS_PRICE_OVER', `交易 maxFeePerGas ${feeGwei.toFixed(4)} gwei 超过上限 ${limits.maxGasPriceGwei} gwei`);
@@ -97,7 +127,9 @@ function checkGasAgainstBinding({ gasLimit, maxFeePerGasWei, maxPriorityFeePerGa
 
   const prio = BigInt(maxPriorityFeePerGasWei);
   const boundPrio = BigInt(binding.maxPriorityFeePerGas);
-  if (prio > boundPrio) return deny('PRIORITY_FEE_OVER', `交易 maxPriorityFeePerGas ${prio} wei 超过授权绑定 ${boundPrio} wei（禁止自行抬高）`);
+  if (prio !== boundPrio) {
+    return deny('PRIORITY_FEE_MISMATCH', `交易 maxPriorityFeePerGas ${prio} wei 与授权绑定 ${boundPrio} wei 不相等（Gas 参数必须与授权绑定完全一致）`);
+  }
   if (prio > fee) return deny('PRIORITY_FEE_ABOVE_MAX_FEE', `maxPriorityFeePerGas ${prio} wei 高于 maxFeePerGas ${fee} wei`);
 
   if (hypeUsd == null || !Number.isFinite(Number(hypeUsd))) {
@@ -112,6 +144,7 @@ function checkGasAgainstBinding({ gasLimit, maxFeePerGasWei, maxPriorityFeePerGa
   return {
     ok: true,
     gas: {
+      type: txType,
       gasLimit: limit.toString(),
       maxFeePerGasWei: fee.toString(),
       maxPriorityFeePerGasWei: prio.toString(),
@@ -121,4 +154,4 @@ function checkGasAgainstBinding({ gasLimit, maxFeePerGasWei, maxPriorityFeePerGa
   };
 }
 
-module.exports = { GAS_PLAN_VERSION, computeGasPlan, checkGasAgainstBinding };
+module.exports = { GAS_PLAN_VERSION, computeGasPlan, checkGasAgainstBinding, normalizeTxType };

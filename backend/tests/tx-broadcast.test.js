@@ -87,6 +87,17 @@ test('绑定哈希不一致 / 缺失 → 拒绝广播', () => {
   assert.equal(pf({ bindingHash: null }).code, 'BINDING_MISSING');
 });
 
+test('首笔模式：wallet-sent 被服务端强制禁用（MODE_DISABLED_IN_FIRST_TX）', () => {
+  const firstTxGate = { ...OPEN_GATE, firstTxMode: true };
+  const sent = preflightBroadcast({ gate: firstTxGate, authorization: CONSUMED_AUTH, bindingHash: BINDING_HASH, mode: 'wallet-sent', rawTx: null, txHash: '0x' + 'ab'.repeat(32), nowMs: NOW });
+  assert.equal(sent.ok, false);
+  assert.equal(sent.code, 'MODE_DISABLED_IN_FIRST_TX');
+  const raw = preflightBroadcast({ gate: firstTxGate, authorization: CONSUMED_AUTH, bindingHash: BINDING_HASH, mode: 'wallet-sign-raw', rawTx: '0x02f8', nowMs: NOW });
+  assert.equal(raw.ok, true, raw.reason);
+  const normal = preflightBroadcast({ gate: { ...OPEN_GATE, firstTxMode: false }, authorization: CONSUMED_AUTH, bindingHash: BINDING_HASH, mode: 'wallet-sent', rawTx: null, txHash: '0x' + 'ab'.repeat(32), nowMs: NOW });
+  assert.equal(normal.ok, true, '非首笔模式下允许 wallet-sent');
+});
+
 test('只允许两种手动方式；缺参数或非法方式 → 拒绝', () => {
   assert.deepEqual(BROADCAST_MODES, ['wallet-sign-raw', 'wallet-sent']);
   assert.equal(pf({ mode: 'auto' }).code, 'MODE_NOT_ALLOWED');
@@ -115,7 +126,7 @@ test('广播失败分类：节点明确拒绝不熔断；结果未知必须熔�
 
 // ---------- 签名交易核对 ----------
 
-async function signTx({ to = PM, value = 0n, data = CALLDATA, chainId = CHAIN.id, gasPrice = 500_000_000n, gas = 500000n, priorityFee = null, account = TEST_ACCOUNT } = {}) {
+async function signTx({ to = PM, value = 0n, data = CALLDATA, chainId = CHAIN.id, gasPrice = 500_000_000n, gas = 525000n, priorityFee = null, account = TEST_ACCOUNT } = {}) {
   return account.signTransaction({
     to, value, data, chainId, nonce: 1, gas,
     maxFeePerGas: gasPrice, maxPriorityFeePerGas: priorityFee != null ? priorityFee : gasPrice, type: 'eip1559',
@@ -130,7 +141,7 @@ test('钱包签名的原始交易与授权绑定一致 → 通过（含发送方
   assert.equal(r.fields.calldataHash, keccak256(CALLDATA));
   assert.equal(r.fields.selector, '0xdd46508f');
   assert.equal(String(r.fields.from), TEST_ACCOUNT.address.toLowerCase());
-  assert.equal(r.fields.gasLimit, '500000');
+  assert.equal(r.fields.gasLimit, '525000');
   assert.equal(r.fields.maxFeePerGasWei, '500000000');
 });
 
@@ -152,42 +163,63 @@ test('签名交易：链 / 合约 / 金额 / calldata / 发送方 任一不符 �
   assert.equal((await verifyRawTxAgainstBinding({ rawTx: otherSender, binding: BINDING, user: TEST_ACCOUNT.address, limits, hypeUsd: HYPE_USD })).code, 'SENDER_MISMATCH');
 });
 
-test('签名交易：钱包自填 Gas 价格超过门禁上限 → 拒绝（禁止自动放宽）', async () => {
+test('签名交易：钱包自填 Gas 价格远高于门禁上限 → 拒绝（先命中与绑定不一致）', async () => {
   const expensive = await signTx({ gasPrice: BigInt(TX_GATE.limits.maxGasPriceGwei + 1) * 10n ** 9n });
   const r = await verifyRawTxAgainstBinding({ rawTx: expensive, binding: BINDING, user: TEST_ACCOUNT.address, limits: TX_GATE.limits, hypeUsd: HYPE_USD });
-  assert.equal(r.code, 'GAS_PRICE_OVER');
+  assert.equal(r.code, 'MAX_FEE_MISMATCH');
 });
 
 // ---------- M3.3 review P0-2：Gas 参数篡改 ----------
 
-test('签名交易：gasLimit 被抬高 → 拒绝', async () => {
-  const raw = await signTx({ gas: 900000n }); // 绑定上限 525000
+test('签名交易：gasLimit 被抬高 → 拒绝（GAS_LIMIT_MISMATCH）', async () => {
+  const raw = await signTx({ gas: 900000n }); // 绑定 525000
   const r = await verifyRawTxAgainstBinding({ rawTx: raw, binding: BINDING, user: TEST_ACCOUNT.address, limits: TX_GATE.limits, hypeUsd: HYPE_USD });
-  assert.equal(r.code, 'GAS_LIMIT_OVER');
-  assert.match(r.reason, /禁止自行抬高/);
+  assert.equal(r.code, 'GAS_LIMIT_MISMATCH');
+  assert.match(r.reason, /不相等/);
 });
 
-test('签名交易：maxFeePerGas 被抬高（但仍低于门禁 5 gwei 上限）→ 拒绝', async () => {
-  const raw = await signTx({ gasPrice: 2_000_000_000n }); // 2 gwei < 5 gwei，但 > 绑定 0.5 gwei
+test('签名交易：gasLimit 被**降低** → 同样拒绝（严格等于绑定值）', async () => {
+  const raw = await signTx({ gas: 400000n });
   const r = await verifyRawTxAgainstBinding({ rawTx: raw, binding: BINDING, user: TEST_ACCOUNT.address, limits: TX_GATE.limits, hypeUsd: HYPE_USD });
-  assert.equal(r.code, 'GAS_PRICE_OVER');
-  assert.match(r.reason, /授权绑定/);
+  assert.equal(r.code, 'GAS_LIMIT_MISMATCH');
 });
 
-test('签名交易：maxPriorityFeePerGas 被抬高 → 拒绝；优先费高于 maxFeePerGas → 拒绝', async () => {
-  const high = await signTx({ gasPrice: 500_000_000n, priorityFee: 400_000_000n }); // 绑定 priority=0.5 gwei → 0.4 不超；改绑定对比
-  const r1 = await verifyRawTxAgainstBinding({ rawTx: high, binding: { ...BINDING, maxPriorityFeePerGas: '300000000' }, user: TEST_ACCOUNT.address, limits: TX_GATE.limits, hypeUsd: HYPE_USD });
-  assert.equal(r1.code, 'PRIORITY_FEE_OVER');
-  // 优先费高于 maxFeePerGas：viem 拒绝序列化这种交易，故用「链上交易事后核对」路径验证同一检查
-  const r2 = verifyOnChainTxAgainstBinding({
-    tx: { from: USER, to: PM, value: 0n, input: CALLDATA, chainId: CHAIN.id, gas: 500000n, maxFeePerGas: 100_000_000n, maxPriorityFeePerGas: 200_000_000n },
+test('签名交易：maxFeePerGas 被抬高（仍低于门禁 5 gwei）→ 拒绝（MAX_FEE_MISMATCH）', async () => {
+  const raw = await signTx({ gasPrice: 2_000_000_000n }); // 2 gwei < 5 gwei，但 ≠ 绑定 0.5 gwei
+  const r = await verifyRawTxAgainstBinding({ rawTx: raw, binding: BINDING, user: TEST_ACCOUNT.address, limits: TX_GATE.limits, hypeUsd: HYPE_USD });
+  assert.equal(r.code, 'MAX_FEE_MISMATCH');
+});
+
+test('签名交易：maxFeePerGas 被**降低** → 同样拒绝', async () => {
+  const raw = await signTx({ gasPrice: 400_000_000n });
+  const r = await verifyRawTxAgainstBinding({ rawTx: raw, binding: BINDING, user: TEST_ACCOUNT.address, limits: TX_GATE.limits, hypeUsd: HYPE_USD });
+  assert.equal(r.code, 'MAX_FEE_MISMATCH');
+});
+
+test('签名交易：legacy 交易（仅 gasPrice）与 EIP-1559 Gas 计划混用 → 拒绝', async () => {
+  const legacyRaw = await TEST_ACCOUNT.signTransaction({
+    to: PM, value: 0n, data: CALLDATA, chainId: CHAIN.id, nonce: 1, gas: 525000n, gasPrice: 500_000_000n, type: 'legacy',
+  });
+  const r = await verifyRawTxAgainstBinding({ rawTx: legacyRaw, binding: BINDING, user: TEST_ACCOUNT.address, limits: TX_GATE.limits, hypeUsd: HYPE_USD });
+  assert.equal(r.code, 'TX_TYPE_MISMATCH');
+  assert.match(r.reason, /legacy/);
+  // 链上交易事后核对同样拒绝 legacy
+  const onchain = verifyOnChainTxAgainstBinding({
+    tx: { from: USER, to: PM, value: 0n, input: CALLDATA, chainId: CHAIN.id, type: '0x0', gas: 525000n, gasPrice: 500_000_000n },
     binding: BINDING, user: USER, limits: TX_GATE.limits, hypeUsd: HYPE_USD,
   });
-  assert.equal(r2.code, 'PRIORITY_FEE_ABOVE_MAX_FEE');
+  assert.equal(onchain.code, 'TX_TYPE_MISMATCH');
+});
+
+test('签名交易：maxPriorityFeePerGas 被抬高 → 拒绝（PRIORITY_FEE_MISMATCH）；优先费高于 maxFeePerGas → 拒绝', async () => {
+  const high = await signTx({ gasPrice: 500_000_000n, priorityFee: 400_000_000n });
+  const r1 = await verifyRawTxAgainstBinding({ rawTx: high, binding: { ...BINDING, maxPriorityFeePerGas: '300000000' }, user: TEST_ACCOUNT.address, limits: TX_GATE.limits, hypeUsd: HYPE_USD });
+  assert.equal(r1.code, 'PRIORITY_FEE_MISMATCH');
+  // 优先费高于 maxFeePerGas 的组合：在 checkGasAgainstBinding 层直接覆盖（见 tests/tx-gas.test.js）
 });
 
 test('签名交易：缺少 Gas 预估 / 绑定缺少 Gas 字段 / 无法获取 HYPE 价格 → 一律拒绝', async () => {
-  const noGas = await signTx({ gas: 500000n });
+  const noGas = await signTx();
   const r1 = await verifyRawTxAgainstBinding({ rawTx: noGas, binding: { ...BINDING, gasLimit: null }, user: TEST_ACCOUNT.address, limits: TX_GATE.limits, hypeUsd: HYPE_USD });
   assert.equal(r1.code, 'GAS_BINDING_MISSING');
   const r2 = await verifyRawTxAgainstBinding({ rawTx: noGas, binding: BINDING, user: TEST_ACCOUNT.address, limits: TX_GATE.limits, hypeUsd: null });
@@ -196,7 +228,7 @@ test('签名交易：缺少 Gas 预估 / 绑定缺少 Gas 字段 / 无法获取 
 
 test('签名交易：Gas 美元成本超过 1 USD → 拒绝（按 gasLimit × maxFeePerGas 最坏成本）', async () => {
   // 绑定允许 525000 × 0.5 gwei = 2.625e14 wei ≈ 0.0002625 HYPE；把 HYPE 价格抬到 5000 USD → ≈1.31 USD
-  const raw = await signTx({ gas: 500000n });
+  const raw = await signTx();
   const r = await verifyRawTxAgainstBinding({ rawTx: raw, binding: BINDING, user: TEST_ACCOUNT.address, limits: TX_GATE.limits, hypeUsd: 5000 });
   assert.equal(r.code, 'GAS_USD_OVER');
 });
@@ -209,7 +241,7 @@ test('非法 rawTx → 拒绝（不抛异常）', async () => {
 });
 
 test('链上交易（钱包自行广播）事后核对：内容一致 → 通过；不一致 → 拒绝', () => {
-  const good = { from: USER, to: PM, value: 0n, input: CALLDATA, chainId: CHAIN.id, gasPrice: 500000000n, gas: 500000n, maxFeePerGas: 500000000n, maxPriorityFeePerGas: 500000000n };
+  const good = { from: USER, to: PM, value: 0n, input: CALLDATA, chainId: CHAIN.id, type: '0x2', gas: 525000n, maxFeePerGas: 500000000n, maxPriorityFeePerGas: 500000000n };
   const r = verifyOnChainTxAgainstBinding({ tx: good, binding: BINDING, user: USER, limits: TX_GATE.limits, hypeUsd: HYPE_USD });
   assert.equal(r.ok, true, r.reason);
   const bad = verifyOnChainTxAgainstBinding({ tx: { ...good, input: '0xdd46508f' + '33'.repeat(64) }, binding: BINDING, user: USER, limits: TX_GATE.limits, hypeUsd: HYPE_USD });
@@ -225,7 +257,7 @@ test('交易指纹可复现（审计用，不保存原始签名数据）', async
 
 // ---------- 回执核对 ----------
 
-const GOOD_TX = { from: USER, to: PM, value: 0n, input: CALLDATA, chainId: CHAIN.id, gasPrice: 500000000n, gas: 500000n, maxFeePerGas: 500000000n, maxPriorityFeePerGas: 500000000n };
+const GOOD_TX = { from: USER, to: PM, value: 0n, input: CALLDATA, chainId: CHAIN.id, type: '0x2', gas: 525000n, maxFeePerGas: 500000000n, maxPriorityFeePerGas: 500000000n };
 function receiptFixture(over = {}) {
   return {
     transactionHash: '0x' + 'cd'.repeat(32), status: 'success', blockNumber: 3886000,

@@ -100,6 +100,75 @@ export function assertSigningRequest(ctx: Parameters<typeof validateSigningReque
   if (reason) throw new Error(reason);
 }
 
+/**
+ * 服务端最新状态快照（每次签名前必须重新读取，不得使用页面旧状态）。
+ * 对应后端：GET /api/tx/gate、POST /api/tx/pre-sign-audit（服务端会写入审计快照）。
+ */
+export type GateSnapshot = {
+  enabled: boolean;
+  unlockPath: string | null;
+  killSwitchTripped: boolean | null;
+  stateUnavailable?: boolean;
+  firstTxMode?: boolean;
+};
+
+export type AuthorizationSnapshot = {
+  status: string;
+  bindingHash: string | null;
+  consumedAt: string | null;
+  consumeAgeSec: number | null;
+  maxConsumeAgeSec: number;
+} | null;
+
+/**
+ * 用**服务端最新快照**判定是否允许请求钱包签名（纯函数，可测试）。
+ * 任何一项不满足都必须拒绝，且调用方不得向钱包发起任何请求。
+ */
+export function evaluateFreshSignGate(input: {
+  gate: GateSnapshot | null | undefined;
+  authorization: AuthorizationSnapshot;
+  preSign: { ok?: boolean; reason?: string | null; bindingHash?: string | null } | null | undefined;
+  expectedBindingHash?: string | null;
+  requestedMode?: 'wallet-sign-raw' | 'wallet-sent';
+}): { ok: boolean; reason: string | null; pre: SignPreconditions; mode: 'wallet-sign-raw' | 'wallet-sent' } {
+  const g = input.gate;
+  const auth = input.authorization;
+  const preSign = input.preSign;
+  const pre: SignPreconditions = {
+    gateEnabled: Boolean(g?.enabled),
+    unlockPath: g?.unlockPath ?? null,
+    killSwitchTripped: g ? (g.killSwitchTripped ?? null) : null,
+    authorizationConsumed: Boolean(auth && auth.status === 'consumed'),
+  };
+  const deny = (reason: string) => ({ ok: false, reason, pre, mode: 'wallet-sign-raw' as const });
+
+  if (!g) return deny('无法读取最新门禁状态（拒绝签名）');
+  if (!g.enabled) return deny('交易门禁关闭（拒绝签名）');
+  if (!g.unlockPath) return deny('缺少解锁记录（拒绝签名）');
+  if (g.killSwitchTripped !== false) return deny('熔断状态异常或已触发（未知 = 拒绝）');
+  if (g.stateUnavailable) return deny('门禁持久化状态不可读（拒绝签名）');
+  if (!auth) return deny('该 intent 没有授权记录（拒绝签名）');
+  if (auth.status !== 'consumed') return deny(`授权状态为 ${auth.status}（未完成一次性消费，拒绝签名）`);
+  if (auth.consumeAgeSec == null) return deny('授权消费时间缺失（拒绝签名）');
+  if (auth.consumeAgeSec > auth.maxConsumeAgeSec) {
+    return deny(`授权消费已过去 ${auth.consumeAgeSec}s（上限 ${auth.maxConsumeAgeSec}s），必须重新走完整流程`);
+  }
+  if (input.expectedBindingHash && auth.bindingHash && !eq(input.expectedBindingHash, auth.bindingHash)) {
+    return deny('服务端授权绑定哈希与本地记录不一致（状态已变化，拒绝签名）');
+  }
+  if (!preSign || preSign.ok !== true) {
+    return deny(`签名前核对未通过：${preSign?.reason || '未执行核对'}（拒绝签名）`);
+  }
+  if (preSign.bindingHash && auth.bindingHash && !eq(preSign.bindingHash, auth.bindingHash)) {
+    return deny('签名前核对返回的绑定哈希与授权不一致（拒绝签名）');
+  }
+
+  // 首笔模式：只允许「钱包只签名 → 后端核对 → 后端广播」
+  const firstTx = g.firstTxMode === true;
+  const mode = firstTx ? 'wallet-sign-raw' : (input.requestedMode ?? 'wallet-sign-raw');
+  return { ok: true, reason: null, pre, mode };
+}
+
 function requireProvider() {
   const p = getProvider();
   if (!p) throw new Error('未检测到浏览器钱包（推荐 OKX 钱包）');

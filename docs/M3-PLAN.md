@@ -261,6 +261,18 @@ tx_audit     审计（intent_id、用户确认时间、签名者地址、交易�
 
 **实测（门禁关闭）**：simulate → Gas 计划 `gasLimit=50000 / maxFee=0.5 gwei / 最坏 0.0018 USD` 并落库；`/authorize` 与 `/broadcast` 仍恒 403；`/pre-sign-check` 对旧记录（缺 Gas 计划）fail-closed 拒绝；熔断未触发；夹具已清理。
 
+## 18. M3.3 review 第二轮修复（P0-1 / P0-2 / P1，2026-11-12）
+
+| 项 | 问题 | 修复 | 证据 |
+|---|---|---|---|
+| **P0-1** | 前端签名前使用可能过期的 React 状态（gate / consumed / intent / gasPlan） | 新增 `POST /api/tx/pre-sign-audit`：服务端重新读取门禁（含熔断、持久化来源）+ 授权状态 + 完整签名前核对，通过时返回**签名载荷** `signing`，并把快照写入审计（`pre-sign-verified`/`pre-sign-rejected`；审计失败 → 拒绝签名）；新增 `GET /api/tx/authorization-state/:intentId`；前端 `doSign()` 每次重新读取钱包账户/链 + 门禁（no-store）+ pre-sign-audit，判定不通过或读取失败 → 不弹钱包；首笔模式强制 wallet-sign-raw | `routes/tx.js`；`frontend/src/lib/tx-sign.ts` `evaluateFreshSignGate()`；前端 22 条测试（含静态顺序断言） |
+| **P0-2** | Gas 参数只要求「不超过」绑定值，可被降级复用；EIP-1559 与 legacy 可混用 | 改为**严格等于**（`GAS_LIMIT_MISMATCH`/`MAX_FEE_MISMATCH`/`PRIORITY_FEE_MISMATCH`）；交易类型必须为 EIP-1559，legacy 或同时带 `gasPrice` → `TX_TYPE_MISMATCH`；保留绝对上限兜底 | `lib/tx-gas.js`；`tests/tx-gas.test.js` 13 条；`tests/tx-broadcast.test.js` legacy 降级用例 |
+| **P1** | 首笔仍可选择 `wallet-sent`（先广播后核对） | 服务端 `preflightBroadcast()` 在首笔模式拒绝 `wallet-sent`（`MODE_DISABLED_IN_FIRST_TX`）；前端同时禁用该选项 | `lib/tx-broadcast.js`、`config/tx-gate.js` `broadcast.firstTx` |
+
+**测试**：后端 226 → **234**；前端 12 → **22**。
+
+**实测（门禁关闭）**：`pre-sign-audit` → ok:false「交易门禁关闭」+ 完整快照并写审计 `pre-sign-rejected`；`authorization-state` → null；`/broadcast`（wallet-sent）→ 403 `GATE_CLOSED`；熔断未触发；夹具已清理。
+
 ## 9. 本阶段复核点（请 review）
 
 1. 门禁模型（双重门禁 + 解锁记录 + 熔断）是否足够；

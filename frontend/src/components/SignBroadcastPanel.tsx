@@ -9,7 +9,7 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { getProviderName, getWalletChainId, switchToElysium } from '../lib/wallet';
-import { assertSigningAllowed, sendViaWallet, signTransactionOnly, signingBlockedReason } from '../lib/tx-sign';
+import { evaluateFreshSignGate, readWalletAccountAndChain, sendViaWallet, signTransactionOnly, signingBlockedReason } from '../lib/tx-sign';
 import type { SignPreconditions } from '../lib/tx-sign';
 
 type GateResp = {
@@ -149,42 +149,87 @@ export default function SignBroadcastPanel({ address, chainId }: { address: stri
     if (data?.ok) setConsumed({ authorizationId: data.authorizationId as number, bindingHash: data.bindingHash as string, consumedAt: String(data.consumedAt) });
   }
 
+  /**
+   * 签名前**重新读取**服务端最新状态（M3.3 review 第二轮 P0-1）。
+   * 不使用页面上的旧 gate / consumed / preSign 状态；任一读取失败 → 拒绝，不弹钱包。
+   */
+  async function fetchFreshSignState() {
+    const wallet = await readWalletAccountAndChain().catch(() => ({ account: null as string | null, chainId: null as number | null }));
+    let gate: Record<string, unknown> | null = null;
+    try {
+      const r = await fetch(api('tx/gate'), { cache: 'no-store' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      gate = (await r.json()).gate as Record<string, unknown>;
+    } catch {
+      gate = null; // fail-closed
+    }
+    let audit: Record<string, unknown> | null = null;
+    try {
+      const r = await fetch(api('tx/pre-sign-audit'), {
+        method: 'POST', cache: 'no-store', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ intentId, calldata: intent?.calldata, to: intent?.targetContract, value: '0', walletAccount: wallet.account, walletChainId: wallet.chainId }),
+      });
+      audit = await r.json();
+    } catch {
+      audit = null; // fail-closed
+    }
+    return { wallet, gate, audit };
+  }
+
   async function doSign() {
     if (!intentId || !intent) return;
-    try {
-      assertSigningAllowed(pre);
-    } catch (e) {
-      note(String((e as Error).message), 'err');
+    setBusy('签名前重新核对');
+    const { wallet, gate: freshGate, audit } = await fetchFreshSignState();
+    setBusy('');
+
+    const snapshot = (audit?.snapshot ?? null) as { authorization?: unknown; preSign?: unknown; intentUser?: string } | null;
+    const verdict = evaluateFreshSignGate({
+      gate: freshGate as never,
+      authorization: (snapshot?.authorization ?? null) as never,
+      preSign: (snapshot?.preSign ?? null) as never,
+      expectedBindingHash: consumed?.bindingHash ?? authorization?.bindingHash ?? null,
+      requestedMode: signMode,
+    });
+    if (!verdict.ok || audit?.ok !== true || !audit?.signing) {
+      note(`拒绝签名：${verdict.reason || (audit?.reason as string) || '服务端状态读取失败或不可用'}`, 'err');
+      return; // 不弹钱包
+    }
+    if (wallet.account && snapshot?.intentUser && wallet.account.toLowerCase() !== snapshot.intentUser.toLowerCase()) {
+      note('拒绝签名：钱包当前账户与 intent 用户不一致', 'err');
       return;
     }
-    if (!gasPlan) {
-      note('缺少预演锁定的 Gas 参数（请先完成第 2 步预演，且预演必须生成 Gas 计划）——拒绝签名', 'err');
-      return;
-    }
-    // from 与 Gas 参数全部显式传入：钱包不得自行决定账户或 Gas
+
+    // 签名载荷来自服务端**签名那一刻**的权威记录（不使用页面旧状态）
+    const pay = audit.signing as { chainId: number; to: string; value: string; calldata: string; gasLimit: number; maxFeePerGas: string; maxPriorityFeePerGas: string };
+    const effectiveMode = verdict.mode;
     const tx = {
-      from: address,
-      to: String(intent.targetContract),
-      value: '0',
-      data: String(intent.calldata),
-      chainId: Number(intent.chainId),
-      gas: `0x${BigInt(gasPlan.gasLimit).toString(16)}`,
-      maxFeePerGas: `0x${BigInt(gasPlan.maxFeePerGasWei).toString(16)}`,
-      maxPriorityFeePerGas: `0x${BigInt(gasPlan.maxPriorityFeePerGasWei).toString(16)}`,
+      from: String(snapshot?.intentUser ?? address),
+      to: pay.to,
+      value: String(pay.value ?? '0'),
+      data: pay.calldata,
+      chainId: Number(pay.chainId),
+      gas: `0x${BigInt(pay.gasLimit).toString(16)}`,
+      maxFeePerGas: `0x${BigInt(pay.maxFeePerGas).toString(16)}`,
+      maxPriorityFeePerGas: `0x${BigInt(pay.maxPriorityFeePerGas).toString(16)}`,
     };
+    if (freshGate?.firstTxMode === true && effectiveMode !== 'wallet-sign-raw') {
+      note('首笔模式只允许「钱包只签名 → 后端核对 → 后端广播」', 'err');
+      return;
+    }
+    note(`签名前核对通过（门禁 ${String((freshGate as { version?: string })?.version)} · 授权已消费 · Gas 已锁定）`, 'ok');
     setBusy('钱包签名');
     try {
-      if (signMode === 'wallet-sign-raw') {
-        const rawTx = await signTransactionOnly(pre, tx);
+      if (effectiveMode === 'wallet-sign-raw') {
+        const rawTx = await signTransactionOnly(verdict.pre, tx);
         note(`钱包已签名（未广播）：${rawTx.slice(0, 20)}…，交由后端核对后广播`, 'ok');
         setBusy('');
-        const { data } = await call('broadcast', { intentId, mode: 'wallet-sign-raw', rawTx, calldata: intent.calldata, to: intent.targetContract, value: '0' }, '后端核对并广播');
+        const { data } = await call('broadcast', { intentId, mode: 'wallet-sign-raw', rawTx, calldata: pay.calldata, to: pay.to, value: pay.value }, '后端核对并广播');
         if (data?.ok) setBroadcast({ broadcastId: data.broadcastId as number, txHash: data.txHash as string, mode: 'wallet-sign-raw' });
       } else {
-        const txHash = await sendViaWallet(pre, tx);
+        const txHash = await sendViaWallet(verdict.pre, tx);
         note(`钱包已广播：${txHash}`, 'ok');
         setBusy('');
-        const { data } = await call('broadcast', { intentId, mode: 'wallet-sent', txHash, calldata: intent.calldata, to: intent.targetContract, value: '0' }, '后端事后核对');
+        const { data } = await call('broadcast', { intentId, mode: 'wallet-sent', txHash, calldata: pay.calldata, to: pay.to, value: pay.value }, '后端事后核对');
         if (data?.ok) setBroadcast({ broadcastId: data.broadcastId as number, txHash, mode: 'wallet-sent' });
       }
     } catch (e) {
@@ -206,7 +251,7 @@ export default function SignBroadcastPanel({ address, chainId }: { address: stri
     { key: 'auth', title: '3. 门禁授权', detail: authorization ? `授权 #${authorization.authorizationId}` : '未授权', state: authorization ? 'ok' : (gateClosed ? 'blocked' : 'idle') },
     { key: 'check', title: '4. 签名前核对', detail: preSign ? (preSign.ok ? '一致' : String(preSign.reason || '不一致')) : '未核对', state: preSign ? (preSign.ok ? 'ok' : 'fail') : (gateClosed ? 'blocked' : 'idle') },
     { key: 'consume', title: '5. 一次性消费授权', detail: consumed ? `已消费（${consumed.consumedAt}）` : '未消费', state: consumed ? 'ok' : (gateClosed ? 'blocked' : 'idle') },
-    { key: 'sign', title: '6. 钱包手动签名', detail: consumed ? (signMode === 'wallet-sign-raw' ? '钱包只签名，不广播' : '钱包内确认并广播') : '未签名', state: broadcast ? 'ok' : (gateClosed ? 'blocked' : 'idle') },
+    { key: 'sign', title: '6. 钱包手动签名', detail: consumed ? ((gate?.firstTxMode || signMode === 'wallet-sign-raw') ? '钱包只签名，不广播' : '钱包内确认并广播') : '未签名（签名前会重新读取服务端状态）', state: broadcast ? 'ok' : (gateClosed ? 'blocked' : 'idle') },
     { key: 'receipt', title: '7. 回执核对', detail: receipt ? String(receipt.status || '') : '未核对', state: receipt ? (receipt.ok ? 'ok' : 'fail') : (gateClosed ? 'blocked' : 'idle') },
   ];
 
@@ -317,9 +362,10 @@ export default function SignBroadcastPanel({ address, chainId }: { address: stri
               <input type="radio" checked={signMode === 'wallet-sign-raw'} onChange={() => setSignMode('wallet-sign-raw')} />
               钱包只签名 → 后端核对后广播
             </label>
-            <label className="flex items-center gap-1">
-              <input type="radio" checked={signMode === 'wallet-sent'} onChange={() => setSignMode('wallet-sent')} />
-              钱包内确认并广播 → 后端事后核对（首笔不建议：先广播后核对，无法撤回）
+            <label className={`flex items-center gap-1 ${gate?.firstTxMode ? 'opacity-40' : ''}`}>
+              <input type="radio" disabled={gate?.firstTxMode === true} checked={signMode === 'wallet-sent'} onChange={() => setSignMode('wallet-sent')} />
+              钱包内确认并广播 → 后端事后核对
+              {gate?.firstTxMode ? '（首笔模式已禁用：先广播后核对，无法撤回）' : '（首笔不建议）'}
             </label>
           </div>
 
