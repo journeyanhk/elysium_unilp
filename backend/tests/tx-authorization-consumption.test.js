@@ -29,6 +29,8 @@ let dbUp = false;
 const createdIds = [];
 
 test.before(async () => {
+  // 数据库不可用（缺表 / 连不上）→ 不探测、不清理；用例本身会被逐条跳过
+  if (typeof test.isDbReady === 'function' && !(await test.isDbReady())) return;
   try {
     await dbQuery('SELECT 1');
     dbUp = true;
@@ -38,7 +40,9 @@ test.before(async () => {
 });
 
 test.after(async () => {
+  // 缺表 / 连不上数据库时：**不执行任何清理 SQL**（没有数据需要清理，也不允许钩子把文件判失败）
   if (!dbUp) return;
+  if (typeof test.isDbReady === 'function' && !(await test.isDbReady())) return;
   // 清理测试夹具（仅删除本测试创建的记录，避免污染真实审计与额度统计）
   if (createdIds.length) {
     await dbQuery(`DELETE FROM tx_gate_attempts WHERE id = ANY($1::int[])`, [createdIds]);
@@ -73,12 +77,12 @@ test('可消费授权必须按 intent + bindingHash + 用户匹配', async (t) =
 test('消费一次成功，重复消费被拒绝（一次性）', async (t) => {
   if (!dbUp) return t.skip('数据库不可用');
   const id = await makeAllowedFixture({ intentId: 9011 });
-  const first = await consumeAuthorization({ attemptId: id, actor: 'user-test', db: dbQueryRetry });
+  const first = await consumeAuthorization({ attemptId: id, actor: 'user-test' });
   assert.equal(first.ok, true, JSON.stringify(first));
   assert.equal(first.consumedBy, 'user-test');
   assert.ok(first.consumedAt, '必须记录消费时间');
 
-  const second = await consumeAuthorization({ attemptId: id, actor: 'user-test', db: dbQueryRetry });
+  const second = await consumeAuthorization({ attemptId: id, actor: 'user-test' });
   assert.equal(second.ok, false);
   assert.match(second.reason, /已被消费/);
 
@@ -98,14 +102,14 @@ test('消费一次成功，重复消费被拒绝（一次性）', async (t) => {
 test('非 allowed 记录不可消费', async (t) => {
   if (!dbUp) return t.skip('数据库不可用');
   const id = await makeAllowedFixture({ intentId: 9012, ok: false });
-  const r = await consumeAuthorization({ attemptId: id, actor: 'user-test', db: dbQueryRetry });
+  const r = await consumeAuthorization({ attemptId: id, actor: 'user-test' });
   assert.equal(r.ok, false);
   assert.match(r.reason, /不存在|不可消费/);
 });
 
 test('消费不存在的授权 id → 拒绝（不报错）', async (t) => {
   if (!dbUp) return t.skip('数据库不可用');
-  const r = await consumeAuthorization({ attemptId: 999999999, actor: 'user-test', db: dbQueryRetry });
+  const r = await consumeAuthorization({ attemptId: 999999999, actor: 'user-test' });
   assert.equal(r.ok, false);
 });
 

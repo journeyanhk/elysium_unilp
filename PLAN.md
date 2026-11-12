@@ -1,6 +1,6 @@
 # 「KNTQ/HYPE LP 管理器」技术方案与开发计划（v0.4.1）
 
-> 状态：v0.6.2 · M0 已合并 · M1 已合并 · **M2 已通过 review 并合并（合并提交 `dc4541c`）** · **M3 规划已提交（写操作全关）**
+> 状态：v0.6.3 · M0 已合并 · M1 已合并 · **M2 已通过 review 并合并（合并提交 `dc4541c`）** · **M3 规划已提交（写操作全关）**
 > 更新日期：2026-11-10
 > 协作：每阶段一个 PR（review 通过再进下一阶段）；提交署名 xnananx；仓库公开（不含任何密钥）
 > 关联材料：uploads/ 两份分析文档（Elysium 可行性评估、目标是赚手续费应该如何选）
@@ -168,6 +168,7 @@
 - v0.3（2026-11-09）：锁定决策；接入远端仓库；新增 M6 部署与交付；首次推送。
 - v0.3.1（2026-11-09）：署名 xnananx；钱包 OKX 优先；VPS 完整部署方案；仓库保持公开；M0 启动。
 - v0.3.2（2026-11-09）：M0 修订 R1（依 review）：白名单读写分离（全部 writeEnabled=false）；PoolKey 补全（currency0/currency1/fee/tickSpacing/hooks + 排序规则）；PositionManager 结论降级为「接口面一致、实现等价性待 M2」；目标池状态改为 verified-parameters；BridgeRouter 降级为 verified-address 并限定核验范围；RPC 端点表述修正（failover 未启用 + 准入条件）；M1 头寸枚举改用 Transfer 事件索引；池龄 < 7 天列为硬性警告。
+- v0.6.3（2026-11-12）：**M3.3 review 第六轮修复**（开关仍全部关闭）。核心交易链路无新 P0；本轮修「缺表环境 2 个清理钩子失败」：根因是钩子保护签名写错（node 钩子是 `before(fn[, options])`，无名字参数），导致 node 注册的是用户的原始函数、保护被忽略 —— 已修正，并给三个数据库测试文件的 `before`/`after` 加文件级 `isDbReady()` 保护，新增 7 条子进程实测（缺表四种钩子都不得执行 / 表齐全必须执行 / 文件级保护 / 对照组必须失败）。同时移除测试里对**写操作**（额度占用/释放）的限流重试注入（与「写操作不得自动重试」规则一致），限流改由运行器节奏控制（遇 429 等待重跑并明确标注）。验收口径改为只看 `fail`/`skipped`，不再硬编码测试总数。实测：完整环境连续 3 次 `fail=0`、`skipped=0`；缺表环境 `fail=0` 且数据库用例全部 `skipped`。
 - v0.6.2（2026-11-12）：**M3.3 review 第五轮修复**（开关仍全部关闭）。review 确认核心交易链路无新 P0；本轮修**测试门禁**：① 跳过机制失效的根因是包装器把 `undefined` 当测试选项传给 node 测试运行器，导致用例回调根本没执行（空用例静默通过）——已修正并接管 `before/after` 钩子，表检查改用 `to_regclass()`，跳过原因含缺失表名/库/schema/search_path/修复办法，另加子进程防退化测试；② 数据库接口限流（400 请求/60 秒）导致连续全量运行偶发 429 —— 新增 `scripts/run-backend-tests.sh`（串行 + 间隔 + 限流标注）、`bun run test:full`、测试侧 429 退避重试（生产代码不变）；③ 新增幂等建表脚本 `bun run db:ensure` 与 schema 一致性守护测试。实测：完整环境连跑 3 次均 **259/259 fail=0**；缺表环境 `fail=0 / skipped=22`；前端 24/24。
 - v0.6.1（2026-11-12）：**M3.3 review 第四轮修复**（开关仍全部关闭）。交易类型改为**缺失即拒绝**：`normalizeTxType()` 不再按 `maxFeePerGas` 推断 EIP-1559，缺失/`null`/未知类型码 → `TX_TYPE_MISSING`，已识别但非 EIP-1559 或带 legacy `gasPrice` → `TX_TYPE_MISMATCH`；前端两种签名方式显式声明 `type: '0x2'`。新增 `tests/helpers/db-required.js`：缺表环境（如未同步 schema 的检出）改为**逐条跳过并提示**，不再出现 22 条难懂失败；连接错误先重试 3 次。测试：后端 250 → **252**（稳定环境连跑 3 次全绿），前端 23 → **24**。
 - v0.6.0（2026-11-12）：**M3.3 review 第三轮修复**（开关仍全部关闭）。P0：`fetchTxByHash()` 补齐 `type` / `gas` / `maxPriorityFeePerGas` —— 之前字段遗漏会把**成功且正确的交易**在回执阶段判为内容不一致（`GAS_LIMIT_MISSING`）→ `verification_failed` → 误触发熔断；新增 `tests/tx-receipt-integration.test.js`（本地假节点 + 真实 JSON-RPC 载荷，11 条），并做了「移除修复即复现失败」的回归证明。观察项：签名前判定抽为纯函数 `evaluatePreSignAudit()`（服务端判定钱包账户/链一致性，审计全部失败原因）；前端要求签名载荷/快照/授权三处绑定哈希一致。测试：后端 234 → **250**，前端 22 → **23**。

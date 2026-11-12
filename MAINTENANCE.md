@@ -251,3 +251,16 @@
   `tests/helpers/db-retry.js` 仅对 429 退避重试（请求被拒绝、未执行，重试安全）；生产 `lib/db.js` 保持不变。
 - **干净检出缺少 M3 表**：`bun run db:ensure`（`scripts/ensure-m3-tables.js`）幂等建表；
   建表脚本与 `db/schema.js` 的一致性由 `tests/db-schema-parity.test.js` 守护（列级比对）。
+
+## 2026-11-12（M3.3 review 第六轮）
+
+- **包装钩子必须按真实签名**：node 的 `before/after/beforeEach/afterEach` 签名是 `fn([, options])`，
+  **没有名字参数**。写成 `(name, fn) => register(name, wrapped)` 会让 node 把调用方传入的原始函数注册成钩子，
+  保护函数被静默忽略 —— 缺表环境下清理钩子照旧执行 `DELETE` 并失败。已修正为 `(fn, options)`。
+- **保护要分层**：除包装器统一保护外，数据库测试文件的 `before`/`after` 钩子内应显式检查 `test.isDbReady()`，
+  任何一层失效都不至于让清理 SQL 打到不存在的表。
+- **写操作不得自动重试（含测试基建）**：限流重试只能用于**只读**调用；
+  额度占用/释放属写操作，注入重试既违反产品规则，也可能造成重复占用。
+- **限流用节奏解决**：`scripts/run-backend-tests.sh` 串行 + 间隔运行，遇 429 等待 120 秒重跑该次，
+  并把「环境限流」与「代码失败」在报告里明确区分（不掩盖真实失败）。
+- **验收口径不写死数字**：只看 `fail` / `skipped`（完整环境 `fail=0`/`skipped=0`；缺表环境 `fail=0` + 数据库用例全 `skipped`）。

@@ -23,6 +23,8 @@ const NS = `testmp${Date.now().toString(36)}-`;
 let dbUp = false;
 
 test.before(async () => {
+  // 数据库不可用（缺表 / 连不上）→ 不探测、不清理；用例本身会被逐条跳过
+  if (typeof test.isDbReady === 'function' && !(await test.isDbReady())) return;
   try {
     await dbQuery('SELECT 1');
     dbUp = true;
@@ -32,7 +34,9 @@ test.before(async () => {
 });
 
 test.after(async () => {
+  // 缺表 / 连不上数据库时：**不执行任何清理 SQL**（没有数据需要清理，也不允许钩子把文件判失败）
   if (!dbUp) return;
+  if (typeof test.isDbReady === 'function' && !(await test.isDbReady())) return;
   try { await dbQuerySafe('ROLLBACK'); } catch { /* 清理会话 */ }
   await dbQuery('DELETE FROM tx_gate_buckets WHERE bucket_key LIKE $1', [`${NS}%`]);
   await dbQuery('DELETE FROM tx_gate_reservations WHERE namespace LIKE $1', [`${NS}%`]);
@@ -42,11 +46,10 @@ test.after(async () => {
 function reserveInChild({ namespace, limits }) {
   const script = `
     const { reserveQuota } = require('./lib/tx-gate-state');
-    const { dbQueryRetry } = require('./tests/helpers/db-retry');
     const { TX_GATE } = require('./config/tx-gate');
     const cfg = JSON.parse(JSON.stringify(TX_GATE));
     cfg.limits = Object.assign({}, cfg.limits, JSON.parse(process.env.MP_LIMITS));
-    reserveQuota({ amountUsd: Number(process.env.MP_AMOUNT), config: cfg, namespace: process.env.MP_NS, db: dbQueryRetry })
+    reserveQuota({ amountUsd: Number(process.env.MP_AMOUNT), config: cfg, namespace: process.env.MP_NS })
       .then((r) => { process.stdout.write(JSON.stringify({ ok: r.ok, code: r.code || null, rid: r.reservation ? r.reservation.reservationId : null })); })
       .catch((e) => { process.stdout.write(JSON.stringify({ ok: false, code: 'ERROR', error: String(e.message).slice(0, 120) })); });
   `;
@@ -101,9 +104,9 @@ test('重复 release 无副作用（唯一 reservation id + 条件更新）', as
   const cfg = JSON.parse(JSON.stringify({ limits: { ...TX_GATE.limits, maxTxPerMinute: 1, maxTxPerDay: 9, dailyMaxUsd: 9999 } }));
   const r = await reserveQuota({ amountUsd: 2, config: cfg, namespace: ns });
   assert.equal(r.ok, true);
-  const first = await releaseQuota(r.reservation, dbQueryRetry);
-  const second = await releaseQuota(r.reservation, dbQueryRetry);
-  const third = await releaseQuota(r.reservation, dbQueryRetry);
+  const first = await releaseQuota(r.reservation);
+  const second = await releaseQuota(r.reservation);
+  const third = await releaseQuota(r.reservation);
   assert.deepEqual([first.released, second.released, third.released], [true, false, false]);
   const buckets = await loadBuckets({ namespace: ns, db: dbQueryRetry });
   assert.ok(buckets.every((b) => b.txCount === 0 && b.amountUsd === 0), `重复释放不得把额度扣成负数或反复扣减：${JSON.stringify(buckets)}`);
@@ -114,7 +117,7 @@ test('重复 release 无副作用（唯一 reservation id + 条件更新）', as
 
 test('释放不存在的 reservation → 无副作用（不报错、不扣减）', async (t) => {
   if (!dbUp) return t.skip('数据库不可用');
-  const out = await releaseQuota({ reservationId: 'deadbeefdeadbeefdeadbeefdeadbeef' }, dbQueryRetry);
+  const out = await releaseQuota({ reservationId: 'deadbeefdeadbeefdeadbeefdeadbeef' });
   assert.equal(out.released, false);
 });
 

@@ -79,13 +79,22 @@ function skipReason(st) {
   return parts.join(' ');
 }
 
-/** 数据库未就绪时，钩子不执行（否则钩子抛错会把整个文件判失败） */
+/**
+ * 数据库未就绪时，钩子不执行（否则钩子抛错会把整个文件判失败）。
+ *
+ * 注意 node 的钩子签名是 `before(fn[, options])`（**没有名字参数**）。
+ * 上一版按 `(name, fn)` 处理，导致 node 把调用方传入的原始函数当成钩子注册，
+ * 保护函数被忽略 —— 缺表环境下清理钩子照旧执行并失败。这里按 `(fn, options)` 处理。
+ */
 function guardHook(register) {
-  return (name, fn) => register(name, async (...args) => {
-    const st = await dbStatus();
-    if (!st.ready) return undefined;
-    return fn(...args);
-  });
+  return (fn, options) => {
+    if (typeof fn !== 'function') return register(fn, options);
+    return register(async (...args) => {
+      const st = await dbStatus();
+      if (!st.ready) return undefined;
+      return fn(...args);
+    }, options);
+  };
 }
 
 const wrapped = function test(name, options, fn) {
@@ -120,6 +129,8 @@ if (nodeTest.test && nodeTest.test.before) {
 }
 
 wrapped.dbStatus = dbStatus;
+/** 统一入口：数据库是否可用（缺表 / 连不上 → false）。测试文件的清理钩子应显式调用它。 */
+wrapped.isDbReady = async () => (await dbStatus()).ready;
 wrapped.skipReason = skipReason;
 wrapped.REQUIRED_TABLES = REQUIRED_TABLES;
 

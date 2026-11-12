@@ -30,6 +30,8 @@ function unlockedCfg(limits) {
 }
 
 test.before(async () => {
+  // 数据库不可用（缺表 / 连不上）→ 不探测、不清理；用例本身会被逐条跳过
+  if (typeof test.isDbReady === 'function' && !(await test.isDbReady())) return;
   try {
     await dbQuery('SELECT 1');
     dbUp = true;
@@ -39,7 +41,9 @@ test.before(async () => {
 });
 
 test.after(async () => {
+  // 缺表 / 连不上数据库时：**不执行任何清理 SQL**（没有数据需要清理，也不允许钩子把文件判失败）
   if (!dbUp) return;
+  if (typeof test.isDbReady === 'function' && !(await test.isDbReady())) return;
   await dbQuery('DELETE FROM tx_gate_buckets WHERE bucket_key LIKE $1', [`${NS}%`]);
 });
 
@@ -48,7 +52,7 @@ test('并发 5 个请求、每分钟上限 1 笔 → 只有 1 个通过', async 
   const ns = `${NS}t1-`;
   const config = cfgWith({ maxTxPerMinute: 1, maxTxPerDay: 99, dailyMaxUsd: 9999 });
   const results = await Promise.all(
-    Array.from({ length: 5 }, () => reserveQuota({ amountUsd: 1, config, namespace: ns, db: dbQueryRetry }))
+    Array.from({ length: 5 }, () => reserveQuota({ amountUsd: 1, config, namespace: ns }))
   );
   const ok = results.filter((r) => r.ok);
   assert.equal(ok.length, 1, `应只有 1 个通过，实际 ${ok.length}：${JSON.stringify(results.map((r) => r.code || 'ok'))}`);
@@ -63,7 +67,7 @@ test('并发 5 笔各 1 USD、日上限 3 USD → 恰好 3 笔通过，总额不
   const ns = `${NS}t2-`;
   const config = cfgWith({ maxTxPerMinute: 99, maxTxPerDay: 99, dailyMaxUsd: 3 });
   const results = await Promise.all(
-    Array.from({ length: 5 }, () => reserveQuota({ amountUsd: 1, config, namespace: ns, db: dbQueryRetry }))
+    Array.from({ length: 5 }, () => reserveQuota({ amountUsd: 1, config, namespace: ns }))
   );
   const ok = results.filter((r) => r.ok);
   assert.equal(ok.length, 3, `应恰好 3 个通过，实际 ${ok.length}`);
@@ -78,7 +82,7 @@ test('并发 5 笔、每日笔数上限 2 → 恰好 2 笔通过', async (t) => 
   const ns = `${NS}t3-`;
   const config = cfgWith({ maxTxPerMinute: 99, maxTxPerDay: 2, dailyMaxUsd: 9999 });
   const results = await Promise.all(
-    Array.from({ length: 5 }, () => reserveQuota({ amountUsd: 0.1, config, namespace: ns, db: dbQueryRetry }))
+    Array.from({ length: 5 }, () => reserveQuota({ amountUsd: 0.1, config, namespace: ns }))
   );
   assert.equal(results.filter((r) => r.ok).length, 2);
   assert.ok(results.filter((r) => !r.ok).every((r) => r.code === 'RATE_PER_DAY'));
@@ -97,11 +101,8 @@ test('并发 authorizeTx（真实数据库额度 + 每分钟 1 笔）→ 只有 
     Array.from({ length: 5 }, () => authorizeTx(req, {
       stateProvider: async () => ({ dailyUsd: 0, txCountLastMinute: 0, txCountToday: 0 }),
       config, namespace: ns,
-      // 额度存储注入「限流重试」版本，避免数据库接口 429 被误报为并发逻辑失败
-      quotaStore: {
-        reserveQuota: (args) => reserveQuota({ ...args, db: dbQueryRetry }),
-        releaseQuota: (r) => releaseQuota(r, dbQueryRetry),
-      },
+      // 注意：额度「占用/释放」属于**写操作**，不得自动重试（与产品规则一致）；
+      // 因此这里不做任何重试注入，限流问题由 scripts/run-backend-tests.sh 的节奏控制解决。
       record: async () => 1, // 审计写入用替身，避免污染真实审计表；真实审计路径由 tx-gate.test.js 覆盖
     }))
   );
@@ -121,7 +122,7 @@ test('补偿释放：占用后释放 → 计数回到 0（不会永久占用额�
   const config = cfgWith({ maxTxPerMinute: 1, maxTxPerDay: 99, dailyMaxUsd: 9999 });
   const r = await reserveQuota({ amountUsd: 2, config, namespace: ns });
   assert.equal(r.ok, true);
-  await releaseQuota(r.reservation, dbQueryRetry);
+  await releaseQuota(r.reservation);
   const buckets = await loadBuckets({ namespace: ns, db: dbQueryRetry });
   assert.ok(buckets.every((b) => b.txCount === 0 && b.amountUsd === 0), JSON.stringify(buckets));
 });
@@ -158,7 +159,7 @@ test('中途失败不产生半占用，且共享会话不被污染（连接断�
   const buckets = await loadBuckets({ namespace: ns, db: dbQueryRetry });
   assert.ok(buckets.every((b) => b.txCount === 0 && b.amountUsd === 0), `不得半占用：${JSON.stringify(buckets)}`);
   // 会话仍可用：正常占用应当成功
-  const ok = await reserveQuota({ amountUsd: 1, config, namespace: ns, db: dbQueryRetry });
+  const ok = await reserveQuota({ amountUsd: 1, config, namespace: ns });
   assert.equal(ok.ok, true, '会话必须仍然可用（不得因中断被污染）');
 });
 
