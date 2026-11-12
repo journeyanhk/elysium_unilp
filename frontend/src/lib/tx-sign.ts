@@ -128,9 +128,12 @@ export function evaluateFreshSignGate(input: {
   gate: GateSnapshot | null | undefined;
   authorization: AuthorizationSnapshot;
   preSign: { ok?: boolean; reason?: string | null; bindingHash?: string | null } | null | undefined;
+  /** 服务端返回的签名载荷（signing.bindingHash 与 snapshot.bindingHash 必须与授权一致） */
+  signing?: { bindingHash?: string | null } | null;
+  snapshotBindingHash?: string | null;
   expectedBindingHash?: string | null;
   requestedMode?: 'wallet-sign-raw' | 'wallet-sent';
-}): { ok: boolean; reason: string | null; pre: SignPreconditions; mode: 'wallet-sign-raw' | 'wallet-sent' } {
+}): { ok: boolean; reason: string | null; pre: SignPreconditions; mode: 'wallet-sign-raw' | 'wallet-sent'; bindingHash: string | null } {
   const g = input.gate;
   const auth = input.authorization;
   const preSign = input.preSign;
@@ -140,7 +143,7 @@ export function evaluateFreshSignGate(input: {
     killSwitchTripped: g ? (g.killSwitchTripped ?? null) : null,
     authorizationConsumed: Boolean(auth && auth.status === 'consumed'),
   };
-  const deny = (reason: string) => ({ ok: false, reason, pre, mode: 'wallet-sign-raw' as const });
+  const deny = (reason: string) => ({ ok: false, reason, pre, mode: 'wallet-sign-raw' as const, bindingHash: null });
 
   if (!g) return deny('无法读取最新门禁状态（拒绝签名）');
   if (!g.enabled) return deny('交易门禁关闭（拒绝签名）');
@@ -162,11 +165,17 @@ export function evaluateFreshSignGate(input: {
   if (preSign.bindingHash && auth.bindingHash && !eq(preSign.bindingHash, auth.bindingHash)) {
     return deny('签名前核对返回的绑定哈希与授权不一致（拒绝签名）');
   }
+  // 三处绑定哈希必须一致：签名载荷 / 快照 / 授权（review 观察项 2）
+  const hashes = [input.signing?.bindingHash, input.snapshotBindingHash, auth.bindingHash].filter((h) => h != null && h !== '');
+  if (hashes.length > 1 && hashes.some((h) => !eq(h, hashes[0]))) {
+    return deny('签名载荷 / 快照 / 授权的绑定哈希不一致（状态已变化，拒绝签名）');
+  }
+  const bindingHash = hashes.length ? hashes[0] : null;
 
   // 首笔模式：只允许「钱包只签名 → 后端核对 → 后端广播」
   const firstTx = g.firstTxMode === true;
   const mode = firstTx ? 'wallet-sign-raw' : (input.requestedMode ?? 'wallet-sign-raw');
-  return { ok: true, reason: null, pre, mode };
+  return { ok: true, reason: null, pre, mode, bindingHash };
 }
 
 function requireProvider() {

@@ -91,4 +91,54 @@ function buildPreSignCurrent({ intent, simulation, request = {}, decoded = null,
   return { ok: true, current, simulation };
 }
 
-module.exports = { simResultHashOf, buildPreSignCurrent };
+/**
+ * 签名前「服务端判定」（M3.3 review 第三轮）：
+ * 把门禁 / 熔断 / 授权 / 核对结果 / 钱包账户与链的一致性判定集中为纯函数，
+ * 便于测试与审计；**任何一项不满足都必须拒绝签名**（fail-closed）。
+ * 返回 { ok, code, reason, reasons }（reason 为首个失败原因，reasons 为全部失败原因）。
+ */
+function evaluatePreSignAudit({
+  gate = null, authorization = null, consumeAgeSec = null, maxConsumeAgeSec = null,
+  check = null, walletAccount = null, walletChainId = null, intentUser = null, intentChainId = null,
+} = {}) {
+  const failures = [];
+  const fail = (code, reason) => failures.push({ code, reason });
+  const lower = (v) => (v == null ? '' : String(v).toLowerCase());
+
+  if (!gate) fail('GATE_STATE_UNAVAILABLE', '门禁状态读取失败（拒绝签名）');
+  else {
+    if (!gate.enabled) fail('GATE_CLOSED', '交易门禁关闭');
+    if (!gate.unlockPath) fail('NO_UNLOCK_RECORD', '缺少解锁记录');
+    if (gate.killSwitchTripped !== false) fail('KILL_SWITCH', '熔断状态异常或已触发（未知 = 拒绝）');
+    if (gate.stateUnavailable) fail('GATE_STATE_UNAVAILABLE', '门禁持久化状态不可读');
+  }
+
+  if (!authorization) fail('NO_AUTHORIZATION', '该 intent 尚无授权记录');
+  else {
+    if (authorization.status !== 'consumed') fail('AUTHORIZATION_NOT_CONSUMED', `授权状态为 ${authorization.status}（未完成一次性消费）`);
+    if (consumeAgeSec == null) fail('CONSUMPTION_TIME_MISSING', '授权消费时间缺失');
+    else if (maxConsumeAgeSec != null && consumeAgeSec > maxConsumeAgeSec) {
+      fail('CONSUMPTION_STALE', `授权消费已过去 ${consumeAgeSec}s（上限 ${maxConsumeAgeSec}s），必须重新走完整流程`);
+    }
+  }
+
+  if (!check || check.ok !== true) fail(check?.code || 'PRESIGN_FAILED', check?.reason || '签名前核对未通过');
+
+  if (!walletAccount) fail('WALLET_ACCOUNT_MISSING', '未提供钱包账户（无法确认签名方就是 intent 用户）');
+  else if (intentUser != null && lower(walletAccount) !== lower(intentUser)) {
+    fail('WALLET_ACCOUNT_MISMATCH', `钱包当前账户 ${walletAccount} 与 intent 用户 ${intentUser} 不一致`);
+  }
+  if (walletChainId == null) fail('WALLET_CHAIN_MISSING', '未提供钱包链 ID（无法确认签名链）');
+  else if (intentChainId != null && Number(walletChainId) !== Number(intentChainId)) {
+    fail('WALLET_CHAIN_MISMATCH', `钱包当前链 ${walletChainId} 与 intent 链 ${intentChainId} 不一致`);
+  }
+
+  return {
+    ok: failures.length === 0,
+    code: failures.length ? failures[0].code : null,
+    reason: failures.length ? failures[0].reason : null,
+    reasons: failures,
+  };
+}
+
+module.exports = { simResultHashOf, buildPreSignCurrent, evaluatePreSignAudit };

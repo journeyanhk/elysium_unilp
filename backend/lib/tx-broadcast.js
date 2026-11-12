@@ -102,6 +102,9 @@ async function sendRawTransactionOnce({ rawTx, rpcUrl, timeoutMs = 20000 } = {})
 async function fetchTxByHash({ txHash, rpcUrl }) {
   const raw = await guardedRpc(rpcUrl, 'eth_getTransactionByHash', [txHash], { retries: 1 });
   if (!raw) return null;
+  // 注意：必须完整映射「交易内容核对」所需的全部字段。
+  // 遗漏 gas / maxPriorityFeePerGas / type 会让回执核对把一笔成功且正确的交易
+  // 误判为内容不一致（GAS_LIMIT_MISSING / PRIORITY_FEE_MISSING）并触发熔断。
   return {
     hash: raw.hash,
     from: raw.from,
@@ -109,8 +112,11 @@ async function fetchTxByHash({ txHash, rpcUrl }) {
     value: raw.value != null ? BigInt(raw.value) : 0n,
     input: raw.input,
     chainId: raw.chainId != null ? Number(raw.chainId) : null,
+    type: raw.type != null ? raw.type : null,
+    gas: raw.gas != null ? BigInt(raw.gas) : null,
     gasPrice: raw.gasPrice != null ? BigInt(raw.gasPrice) : null,
     maxFeePerGas: raw.maxFeePerGas != null ? BigInt(raw.maxFeePerGas) : null,
+    maxPriorityFeePerGas: raw.maxPriorityFeePerGas != null ? BigInt(raw.maxPriorityFeePerGas) : null,
     blockNumber: raw.blockNumber != null ? Number(raw.blockNumber) : null,
   };
 }

@@ -106,6 +106,13 @@ const TX_GATE = {
       '链上交易内容与授权绑定不一致（事后核对）→ 熔断',
       '同一 intent 出现第二笔广播 → 拒绝',
     ],
+    presignAudit: {
+      // 签名前重新核对：服务端重新读取门禁 / 授权 / 核对结果，并判定钱包账户与链一致性
+      rejectCodes: [
+        'PRESIGN_REBUILD_FAILED', 'PRESIGN_ERROR', 'PRESIGN_AUDIT_FAILED', 'NO_AUTHORIZATION',
+        'WALLET_ACCOUNT_MISMATCH', 'WALLET_ACCOUNT_MISSING', 'WALLET_CHAIN_MISMATCH', 'WALLET_CHAIN_MISSING',
+      ],
+    },
     firstTx: {
       allowedModes: ['wallet-sign-raw'], // 首笔模式只允许「钱包只签名 → 后端核对 → 后端广播」
       disabledModes: ['wallet-sent'], // 先广播后核对，内容有误无法撤回 → 首笔禁用（服务端强制）

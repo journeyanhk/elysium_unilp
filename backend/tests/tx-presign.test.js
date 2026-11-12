@@ -12,7 +12,8 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { simResultHashOf, buildPreSignCurrent } = require('../lib/tx-presign');
+const {
+  evaluatePreSignAudit, simResultHashOf, buildPreSignCurrent } = require('../lib/tx-presign');
 const { computeBinding, bindingHashOf, calldataHashOf, preSignCheck } = require('../lib/tx-binding');
 const { CHAIN, CONTRACTS } = require('../config/whitelist');
 
@@ -190,4 +191,57 @@ test('模拟结果摘要稳定：同一结果同哈希，任何字段变化都�
   assert.notEqual(simResultHashOf(base), simResultHashOf({ ...base, gasEstimate: '420001' }));
   assert.notEqual(simResultHashOf(base), simResultHashOf({ ...base, simBlockHash: '0x' + 'aa'.repeat(32) }));
   assert.match(simResultHashOf(base), /^0x[0-9a-f]{64}$/);
+});
+
+// ---------- 签名前服务端判定（M3.3 review 第三轮观察项 1） ----------
+
+const GOOD_GATE = { enabled: true, version: 'M3-gate-4', unlockPath: 'user-informed-acceptance', killSwitchTripped: false, stateUnavailable: false };
+const GOOD_AUTH = { status: 'consumed', bindingHash: '0x' + 'aa'.repeat(32), consumedAt: new Date().toISOString() };
+const GOOD_CHECK = { ok: true, reason: null };
+const GOOD_WALLET = { walletAccount: USER, walletChainId: 99901, intentUser: USER, intentChainId: 99901 };
+
+test('签名前判定：全部满足 → 允许签名', () => {
+  const v = evaluatePreSignAudit({ gate: GOOD_GATE, authorization: GOOD_AUTH, consumeAgeSec: 10, maxConsumeAgeSec: 180, check: GOOD_CHECK, ...GOOD_WALLET });
+  assert.equal(v.ok, true, JSON.stringify(v.reasons));
+  assert.equal(v.code, null);
+});
+
+test('签名前判定：门禁 / 熔断 / 持久化状态（含「未知」）→ 拒绝', () => {
+  const base = { authorization: GOOD_AUTH, consumeAgeSec: 10, maxConsumeAgeSec: 180, check: GOOD_CHECK, ...GOOD_WALLET };
+  assert.equal(evaluatePreSignAudit({ ...base, gate: null }).code, 'GATE_STATE_UNAVAILABLE');
+  assert.equal(evaluatePreSignAudit({ ...base, gate: { ...GOOD_GATE, enabled: false } }).code, 'GATE_CLOSED');
+  assert.equal(evaluatePreSignAudit({ ...base, gate: { ...GOOD_GATE, unlockPath: null } }).code, 'NO_UNLOCK_RECORD');
+  assert.equal(evaluatePreSignAudit({ ...base, gate: { ...GOOD_GATE, killSwitchTripped: true } }).code, 'KILL_SWITCH');
+  assert.equal(evaluatePreSignAudit({ ...base, gate: { ...GOOD_GATE, killSwitchTripped: null } }).code, 'KILL_SWITCH', '熔断状态未知 = 拒绝');
+  assert.equal(evaluatePreSignAudit({ ...base, gate: { ...GOOD_GATE, stateUnavailable: true } }).code, 'GATE_STATE_UNAVAILABLE');
+});
+
+test('签名前判定：授权未消费 / 时间缺失 / 超时 → 拒绝', () => {
+  const base = { gate: GOOD_GATE, check: GOOD_CHECK, ...GOOD_WALLET };
+  assert.equal(evaluatePreSignAudit({ ...base, authorization: null, consumeAgeSec: 1, maxConsumeAgeSec: 180 }).code, 'NO_AUTHORIZATION');
+  assert.equal(evaluatePreSignAudit({ ...base, authorization: { ...GOOD_AUTH, status: 'authorized' }, consumeAgeSec: 1, maxConsumeAgeSec: 180 }).code, 'AUTHORIZATION_NOT_CONSUMED');
+  assert.equal(evaluatePreSignAudit({ ...base, authorization: GOOD_AUTH, consumeAgeSec: null, maxConsumeAgeSec: 180 }).code, 'CONSUMPTION_TIME_MISSING');
+  assert.equal(evaluatePreSignAudit({ ...base, authorization: GOOD_AUTH, consumeAgeSec: 400, maxConsumeAgeSec: 180 }).code, 'CONSUMPTION_STALE');
+});
+
+test('签名前判定：钱包账户与链由**服务端**判定，不依赖前端', () => {
+  const base = { gate: GOOD_GATE, authorization: GOOD_AUTH, consumeAgeSec: 10, maxConsumeAgeSec: 180, check: GOOD_CHECK };
+  assert.equal(evaluatePreSignAudit({ ...base, walletAccount: '0x' + '11'.repeat(20), walletChainId: 99901, intentUser: USER, intentChainId: 99901 }).code, 'WALLET_ACCOUNT_MISMATCH');
+  assert.equal(evaluatePreSignAudit({ ...base, walletAccount: null, walletChainId: 99901, intentUser: USER, intentChainId: 99901 }).code, 'WALLET_ACCOUNT_MISSING');
+  assert.equal(evaluatePreSignAudit({ ...base, walletAccount: USER, walletChainId: 1, intentUser: USER, intentChainId: 99901 }).code, 'WALLET_CHAIN_MISMATCH');
+  assert.equal(evaluatePreSignAudit({ ...base, walletAccount: USER, walletChainId: null, intentUser: USER, intentChainId: 99901 }).code, 'WALLET_CHAIN_MISSING');
+  // 大小写不敏感
+  assert.equal(evaluatePreSignAudit({ ...base, walletAccount: USER.toUpperCase().replace('0X', '0x'), walletChainId: 99901, intentUser: USER, intentChainId: 99901 }).ok, true);
+});
+
+test('签名前判定：核对失败会带上失败码；全部失败原因都被记录（供审计）', () => {
+  const v = evaluatePreSignAudit({
+    gate: { ...GOOD_GATE, enabled: false, killSwitchTripped: true }, authorization: null,
+    consumeAgeSec: null, maxConsumeAgeSec: 180, check: { ok: false, reason: '内容不一致', code: 'CALLDATA_MISMATCH' },
+    walletAccount: '0x' + '11'.repeat(20), walletChainId: 1, intentUser: USER, intentChainId: 99901,
+  });
+  assert.equal(v.ok, false);
+  const codes = v.reasons.map((r) => r.code);
+  assert.deepEqual(codes, ['GATE_CLOSED', 'KILL_SWITCH', 'NO_AUTHORIZATION', 'CALLDATA_MISMATCH', 'WALLET_ACCOUNT_MISMATCH', 'WALLET_CHAIN_MISMATCH']);
+  assert.equal(v.code, 'GATE_CLOSED');
 });

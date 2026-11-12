@@ -188,7 +188,15 @@ function verifyReceipt({ receipt, tx, binding, user, limits = {}, hypeUsd = null
   }
   const content = verifyOnChainTxAgainstBinding({ tx, binding, user, limits, hypeUsd });
   if (!content.ok) {
-    return { ok: false, code: 'POST_BROADCAST_MISMATCH', reason: `链上交易内容与授权绑定不一致：${content.reason}`, receipt: summary, content };
+    const missing = ['gas', 'maxPriorityFeePerGas', 'maxFeePerGas', 'type']
+      .filter((f) => (tx == null || tx[f] == null));
+    return {
+      ok: false, code: 'POST_BROADCAST_MISMATCH',
+      reason: `链上交易内容与授权绑定不一致（${content.code}）：${content.reason}`,
+      contentCode: content.code,
+      missingTxFields: missing,
+      receipt: summary, content,
+    };
   }
   let gasUsd = null;
   if (summary.gasUsed && summary.effectiveGasPrice) {

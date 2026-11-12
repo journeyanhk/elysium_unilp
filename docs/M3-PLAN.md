@@ -273,6 +273,19 @@ tx_audit     审计（intent_id、用户确认时间、签名者地址、交易�
 
 **实测（门禁关闭）**：`pre-sign-audit` → ok:false「交易门禁关闭」+ 完整快照并写审计 `pre-sign-rejected`；`authorization-state` → null；`/broadcast`（wallet-sent）→ 403 `GATE_CLOSED`；熔断未触发；夹具已清理。
 
+## 19. M3.3 review 第三轮修复（P0 回执字段 + 2 个观察项，2026-11-12）
+
+| 项 | 问题 | 修复 | 证据 |
+|---|---|---|---|
+| **P0** | `fetchTxByHash()` 未映射 `gas` / `maxPriorityFeePerGas` / `type`，而 Gas 已纳入严格绑定 → **成功且正确的交易**在回执阶段被判 `POST_BROADCAST_MISMATCH` → `verification_failed` → 误触发熔断 | 补齐三个字段（bigint / 保留 type）；`verifyOnChainTxAgainstBinding()` 显式传 `type` 与 `gasPriceWei`；回执结论带 `contentCode` + `missingTxFields` | `tests/tx-receipt-integration.test.js`（11 条，**本地假节点 + 真实 JSON-RPC 载荷**，字段由真实签名交易解析）；移除修复后测试复现 review 预测的失败 |
+| 观察项 1 | 钱包账户/链一致性只在**前端**判定 | 抽出纯函数 `evaluatePreSignAudit()`：服务端判定 `WALLET_ACCOUNT_MISMATCH` / `WALLET_ACCOUNT_MISSING` / `WALLET_CHAIN_MISMATCH` / `WALLET_CHAIN_MISSING`，审计全部失败原因 | `lib/tx-presign.js` + `tests/tx-presign.test.js` 6 条 |
+| 观察项 2 | 未使用服务端返回的 `signing.bindingHash` 做最终比较 | 前端要求 `signing.bindingHash` == `snapshot.bindingHash` == `authorization.bindingHash`，并把该值记入本地日志 | `frontend/src/lib/tx-sign.ts` + 前端测试 |
+
+**测试**：后端 234 → **250**；前端 22 → **23**。
+
+**实测（门禁关闭）**：`/receipt`（不存在的交易哈希）→ `pending=true`、`code=RECEIPT_PENDING`、**不熔断**、状态保持 `broadcasted`、审计 `receipt-pending`；
+`/pre-sign-audit` 快照含全部失败原因与钱包一致性字段；熔断表最新事件仍为人工清除；全部夹具已清理。
+
 ## 9. 本阶段复核点（请 review）
 
 1. 门禁模型（双重门禁 + 解锁记录 + 熔断）是否足够；

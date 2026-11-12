@@ -183,10 +183,13 @@ export default function SignBroadcastPanel({ address, chainId }: { address: stri
     setBusy('');
 
     const snapshot = (audit?.snapshot ?? null) as { authorization?: unknown; preSign?: unknown; intentUser?: string } | null;
+    const signingPayload = (audit?.signing ?? null) as { bindingHash?: string | null } | null;
     const verdict = evaluateFreshSignGate({
       gate: freshGate as never,
       authorization: (snapshot?.authorization ?? null) as never,
       preSign: (snapshot?.preSign ?? null) as never,
+      signing: signingPayload,
+      snapshotBindingHash: (snapshot as { bindingHash?: string | null } | null)?.bindingHash ?? null,
       expectedBindingHash: consumed?.bindingHash ?? authorization?.bindingHash ?? null,
       requestedMode: signMode,
     });
@@ -216,7 +219,7 @@ export default function SignBroadcastPanel({ address, chainId }: { address: stri
       note('首笔模式只允许「钱包只签名 → 后端核对 → 后端广播」', 'err');
       return;
     }
-    note(`签名前核对通过（门禁 ${String((freshGate as { version?: string })?.version)} · 授权已消费 · Gas 已锁定）`, 'ok');
+    note(`签名前核对通过（门禁 ${String((freshGate as { version?: string })?.version)} · 授权已消费 · Gas 已锁定 · 绑定 ${String(verdict.bindingHash).slice(0, 14)}…）`, 'ok');
     setBusy('钱包签名');
     try {
       if (effectiveMode === 'wallet-sign-raw') {

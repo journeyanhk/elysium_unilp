@@ -17,7 +17,7 @@ const { buildIntent } = require('../lib/tx-build');
 const { simulate, checkSimulationUser } = require('../lib/tx-simulate');
 const { preSignCheck } = require('../lib/tx-binding');
 const { decodeForCheck } = require('../lib/tx-parse');
-const { simResultHashOf, buildPreSignCurrent } = require('../lib/tx-presign');
+const { simResultHashOf, buildPreSignCurrent, evaluatePreSignAudit } = require('../lib/tx-presign');
 const { loadLatestSimulation, loadConsumedAuthorization, consumeAuthorization } = require('../lib/tx-gate-state');
 const { whitelistKeyOf } = require('../lib/tx-build');
 const { TX_GATE, assertTxAllowed, txGateStatus, evaluateTxRequest, authorizeTx } = require('../config/tx-gate');
@@ -677,22 +677,15 @@ router.post('/pre-sign-audit', async (req, res) => {
       check = { ok: false, reason: `签名前核对异常：${String(e.message).slice(0, 200)}`, code: 'PRESIGN_ERROR' };
     }
 
-    // 逐项判定（顺序即优先级；任一项不满足 → 拒绝签名）
-    let ok = true;
-    let reason = null;
-    const fail = (r) => { if (ok) { ok = false; reason = r; } };
-    if (!gate.enabled) fail('交易门禁关闭');
-    if (!gate.unlockPath) fail('缺少解锁记录');
-    if (gate.killSwitchTripped !== false) fail('熔断状态异常或已触发（未知 = 拒绝）');
-    if (gate.stateUnavailable) fail('门禁持久化状态不可读');
-    if (authError) fail(`授权状态读取失败：${authError}`);
-    if (!auth) fail('该 intent 尚无授权记录');
-    else if (auth.status !== 'consumed') fail(`授权状态为 ${auth.status}（未完成一次性消费）`);
-    if (auth && consumeAgeSec == null) fail('授权消费时间缺失');
-    if (auth && consumeAgeSec != null && consumeAgeSec > maxConsumeAge) {
-      fail(`授权消费已过去 ${consumeAgeSec}s（上限 ${maxConsumeAge}s），必须重新走完整流程`);
-    }
-    if (!check.ok) fail(check.reason || '签名前核对未通过');
+    // 逐项判定（集中为纯函数，便于测试与审计；任一项不满足 → 拒绝签名）
+    const verdict = evaluatePreSignAudit({
+      gate, authorization: auth, consumeAgeSec, maxConsumeAgeSec: maxConsumeAge,
+      check, walletAccount, walletChainId,
+      intentUser: it.user_addr, intentChainId: it.chain_id,
+    });
+    const ok = verdict.ok;
+    const reason = verdict.reason;
+    const code = verdict.code;
 
     // 签名用载荷：**签名那一刻**从权威记录取出的字节，前端不得使用页面旧状态
     let signing = null;
@@ -720,12 +713,16 @@ router.post('/pre-sign-audit', async (req, res) => {
 
     const snapshot = {
       at: new Date().toISOString(),
+      code,
+      reasons: verdict.reasons,
       gate: { version: gate.version, enabled: gate.enabled, unlockPath: gate.unlockPath, killSwitchTripped: gate.killSwitchTripped, stateSource: gate.stateSource, firstTxMode: gate.firstTxMode },
       authorization: auth ? { id: auth.attemptId, status: auth.status, bindingHash: auth.bindingHash, consumedAt: auth.consumedAt, consumeAgeSec } : null,
       bindingHash: auth ? auth.bindingHash : null,
       preSign: { ok: Boolean(check.ok), reason: check.reason || null, changed: check.changed || null },
       walletAccount: walletAccount || null,
       walletChainId: walletChainId != null ? Number(walletChainId) : null,
+      walletAccountMatches: walletAccount != null && String(walletAccount).toLowerCase() === String(it.user_addr).toLowerCase(),
+      walletChainMatches: walletChainId != null && Number(walletChainId) === Number(it.chain_id),
       intentUser: it.user_addr,
     };
     try {
@@ -740,9 +737,10 @@ router.post('/pre-sign-audit', async (req, res) => {
     }
 
     res.json(safeJson({
-      ok, reason, snapshot, signing,
+      ok, reason, code, snapshot, signing,
       notes: [
         '本接口只重新读取与核对，不签名、不广播',
+        '钱包账户 / 链一致性由服务端判定（WALLET_ACCOUNT_MISMATCH / WALLET_CHAIN_MISMATCH）',
         ok ? '状态新鲜且一致，可以请求钱包签名（请使用返回的 signing 载荷，不要使用页面旧状态）' : '拒绝签名：状态过期/不一致',
       ],
     }));

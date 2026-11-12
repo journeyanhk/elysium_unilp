@@ -158,6 +158,22 @@ describe('P0-1（第二轮）签名前必须重新读取服务端状态', () => 
     expect(v.reason).toMatch(/不一致/);
   });
 
+  test('签名载荷 / 快照 / 授权 三处绑定哈希必须一致（观察项 2）', () => {
+    const H = '0x' + 'aa'.repeat(32);
+    const okV = evaluateFreshSignGate({
+      gate: freshGate, authorization: freshAuth, preSign: freshPre,
+      signing: { bindingHash: H }, snapshotBindingHash: H,
+    });
+    expect(okV.ok).toBe(true);
+    expect(okV.bindingHash).toBe(H);
+    const bad = evaluateFreshSignGate({
+      gate: freshGate, authorization: freshAuth, preSign: freshPre,
+      signing: { bindingHash: '0x' + 'cc'.repeat(32) }, snapshotBindingHash: H,
+    });
+    expect(bad.ok).toBe(false);
+    expect(bad.reason).toMatch(/绑定哈希不一致/);
+  });
+
   test('首笔模式：强制 wallet-sign-raw（wallet-sent 被禁用）', () => {
     const v = evaluateFreshSignGate({ gate: freshGate, authorization: freshAuth, preSign: freshPre, requestedMode: 'wallet-sent' });
     expect(v.ok).toBe(true);

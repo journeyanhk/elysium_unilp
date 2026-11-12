@@ -274,3 +274,20 @@ UPDATE tx_gate_buckets SET tx_count = tx_count + 1
 
 - `firstTxMode=true` 时只允许 `wallet-sign-raw`（钱包只签名 → 后端核对 → 后端单次广播）；
   `wallet-sent` 由**服务端**拒绝（`MODE_DISABLED_IN_FIRST_TX`），前端同时禁用该选项。
+
+## 回执核对必须完整映射 RPC 字段（M3.3 review 第三轮 P0）
+
+- 由于 Gas 参数（`gasLimit` / `maxFeePerGas` / `maxPriorityFeePerGas`）已纳入**严格相等**绑定，
+  回执阶段重新读取链上交易时**必须**完整映射 `type` / `gas` / `maxPriorityFeePerGas`；
+  任何字段遗漏都会把**成功且正确的交易**误判为内容不一致（`GAS_LIMIT_MISSING` / `PRIORITY_FEE_MISSING`）→ 误触发熔断。
+- 回执结论带 `contentCode`（具体失败码）与 `missingTxFields`（缺失字段清单），便于人工复核；
+  节点未返回所需字段时 fail-closed 拒绝（不默认放行）。
+- 集成测试使用**本地假节点 + 真实 JSON-RPC 十六进制载荷**，覆盖「成功不误熔断」与「错误必熔断」两侧。
+
+## 钱包账户与链一致性（服务端判定）
+
+- `/api/tx/pre-sign-audit` 由服务端判定 `walletAccount == intent.user_addr`（大小写不敏感）与
+  `walletChainId == intent.chain_id`：`WALLET_ACCOUNT_MISMATCH` / `WALLET_ACCOUNT_MISSING` /
+  `WALLET_CHAIN_MISMATCH` / `WALLET_CHAIN_MISSING`，并把全部失败原因写入审计快照。
+- 前端同时要求 `signing.bindingHash` == `snapshot.bindingHash` == `authorization.bindingHash`；
+  后端签名恢复地址校验（`SENDER_MISMATCH`）仍为最终兜底。
