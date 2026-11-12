@@ -296,6 +296,21 @@ tx_audit     审计（intent_id、用户确认时间、签名者地址、交易�
 
 **测试**：后端 250 → **252**；前端 23 → **24**。
 
+## 21. M3.3 review 第五轮修复（测试门禁，2026-11-12）
+
+review 结论：核心交易链路（签名/广播/Gas/类型/回执）**未再发现 P0**；阻塞项是**测试门禁**——
+提交说明中的 252/252 在独立检出环境无法复现（232/252，22 条失败），且新增的跳过机制**没有生效**（0 skipped）。
+
+| 项 | 根因 | 修复 | 证据 |
+|---|---|---|---|
+| 跳过机制失效 | 包装器写成 `nodeTest.test(name, options, runner)`，`options` 为 `undefined` 时 node **不执行 runner** → 用例变空用例静默通过；且 `before` 钩子抛错会把整文件判失败 | 修正注册方式（`options` 为函数/空时用两参数形式）；包装器接管 `before/after/beforeEach/afterEach`，数据库不可用时钩子不执行；表检查改用 `to_regclass()`（同一 search_path）；跳过原因含缺失表名/库/schema/search_path/修复办法 | `tests/helpers/db-required.js`；防退化测试 `tests/db-required-helper.test.js`（子进程实测：缺表必须 skipped；表齐全必须真正执行用例体） |
+| 完整环境不可复现 | 数据库接口限流约 400 请求/60 秒，全量测试（跨进程额度测试并发 5 子进程）接近该量级，连续重跑触发 429 | 新增 `scripts/run-backend-tests.sh`（串行 + 间隔 70s + 限流标注）；`bun run test:full`；测试侧 `tests/helpers/db-retry.js` 仅对 429 退避重试（生产 `lib/db.js` 不变） | 实测 3 次连续运行均 **259/259 fail=0** |
+| 缺表环境无补救手段 | 干净检出可能从未启动过后端 | 新增幂等建表脚本 `scripts/ensure-m3-tables.js`（`bun run db:ensure`），只建 8 张 M3 表；一致性由 `tests/db-schema-parity.test.js` 守护 | 实测幂等（重复执行「新建 0 张」，补列/索引 17/17 成功） |
+
+**测试**：后端 252 → **259**（新增 4 条 schema 一致性 + 3 条包装器防退化）；前端保持 **24**。
+
+**两条验证路径**：方案一 `bun run test:full` → 3× fail=0（实测 259/259）；方案二 `TEST_REQUIRED_TABLES=__not_a_real_table__ node --test tests/*.test.js` → `fail=0 / skipped=22`（实测 pass=237）。
+
 ## 9. 本阶段复核点（请 review）
 
 1. 门禁模型（双重门禁 + 解锁记录 + 熔断）是否足够；

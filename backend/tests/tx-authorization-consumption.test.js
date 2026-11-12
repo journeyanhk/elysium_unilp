@@ -12,7 +12,7 @@
 const test = require('./helpers/db-required');
 const assert = require('node:assert');
 
-const { dbQuery } = require('@surf-ai/sdk/db');
+const { dbQuery, dbQueryRetry } = require('./helpers/db-retry');
 const { dbQuerySafe } = require('../lib/db');
 const {
   recordAttempt, loadLatestAuthorization, loadConsumedAuthorization, consumeAuthorization,
@@ -59,31 +59,31 @@ async function makeAllowedFixture({ intentId = 9001, bindingHash = BINDING_HASH,
 test('可消费授权必须按 intent + bindingHash + 用户匹配', async (t) => {
   if (!dbUp) return t.skip('数据库不可用');
   const id = await makeAllowedFixture({ intentId: 9010 });
-  const byAll = await loadLatestAuthorization({ intentId: 9010, bindingHash: BINDING_HASH, user: USER });
+  const byAll = await loadLatestAuthorization({ intentId: 9010, bindingHash: BINDING_HASH, user: USER, db: dbQueryRetry });
   assert.ok(byAll, '三个条件都匹配时应能取到授权');
   assert.equal(byAll.attemptId, id);
   assert.equal(byAll.status, 'authorized');
   assert.equal(String(byAll.bindingHash).toLowerCase(), BINDING_HASH);
 
-  assert.equal(await loadLatestAuthorization({ intentId: 9010, bindingHash: '0x' + 'cc'.repeat(32), user: USER }), null, '绑定哈希不匹配 → 不得返回授权');
-  assert.equal(await loadLatestAuthorization({ intentId: 9010, bindingHash: BINDING_HASH, user: OTHER }), null, '用户不匹配 → 不得返回授权');
-  assert.equal(await loadLatestAuthorization({ intentId: 999999 }), null, '不存在的 intent → 不得返回授权');
+  assert.equal(await loadLatestAuthorization({ intentId: 9010, bindingHash: '0x' + 'cc'.repeat(32), user: USER, db: dbQueryRetry }), null, '绑定哈希不匹配 → 不得返回授权');
+  assert.equal(await loadLatestAuthorization({ intentId: 9010, bindingHash: BINDING_HASH, user: OTHER, db: dbQueryRetry }), null, '用户不匹配 → 不得返回授权');
+  assert.equal(await loadLatestAuthorization({ intentId: 999999, db: dbQueryRetry }), null, '不存在的 intent → 不得返回授权');
 });
 
 test('消费一次成功，重复消费被拒绝（一次性）', async (t) => {
   if (!dbUp) return t.skip('数据库不可用');
   const id = await makeAllowedFixture({ intentId: 9011 });
-  const first = await consumeAuthorization({ attemptId: id, actor: 'user-test' });
+  const first = await consumeAuthorization({ attemptId: id, actor: 'user-test', db: dbQueryRetry });
   assert.equal(first.ok, true, JSON.stringify(first));
   assert.equal(first.consumedBy, 'user-test');
   assert.ok(first.consumedAt, '必须记录消费时间');
 
-  const second = await consumeAuthorization({ attemptId: id, actor: 'user-test' });
+  const second = await consumeAuthorization({ attemptId: id, actor: 'user-test', db: dbQueryRetry });
   assert.equal(second.ok, false);
   assert.match(second.reason, /已被消费/);
 
   // 消费后不再出现在「可消费」查询中，但可在「已消费」查询中找到
-  assert.equal(await loadLatestAuthorization({ intentId: 9011, user: USER }), null);
+  assert.equal(await loadLatestAuthorization({ intentId: 9011, user: USER, db: dbQueryRetry }), null);
   const consumed = await loadConsumedAuthorization({ intentId: 9011 });
   assert.ok(consumed);
   assert.equal(consumed.id, id);
@@ -98,14 +98,14 @@ test('消费一次成功，重复消费被拒绝（一次性）', async (t) => {
 test('非 allowed 记录不可消费', async (t) => {
   if (!dbUp) return t.skip('数据库不可用');
   const id = await makeAllowedFixture({ intentId: 9012, ok: false });
-  const r = await consumeAuthorization({ attemptId: id, actor: 'user-test' });
+  const r = await consumeAuthorization({ attemptId: id, actor: 'user-test', db: dbQueryRetry });
   assert.equal(r.ok, false);
   assert.match(r.reason, /不存在|不可消费/);
 });
 
 test('消费不存在的授权 id → 拒绝（不报错）', async (t) => {
   if (!dbUp) return t.skip('数据库不可用');
-  const r = await consumeAuthorization({ attemptId: 999999999, actor: 'user-test' });
+  const r = await consumeAuthorization({ attemptId: 999999999, actor: 'user-test', db: dbQueryRetry });
   assert.equal(r.ok, false);
 });
 

@@ -236,3 +236,18 @@
   连接类错误先重试 3 次，避免把后端重启窗口误判为缺表。
 - **数据库相关测试需要后端稳定运行**：本仓库文件变更会触发后端重启，重启窗口内跑全量测试可能不稳定。
   稳定环境下全量测试连跑 3 次均 252/252。
+
+## 2026-11-12（M3.3 review 第五轮）
+
+- **测试包装器的静默失效**：`nodeTest.test(name, options, fn)` 中 `options` 为 `undefined` 时，
+  node 不执行 `fn` —— 用例变成空用例「通过」，导致跳过逻辑形同虚设（缺表环境 0 skipped / 22 fail）。
+  教训：包装测试运行器的代码，必须有「用例体是否真的执行」的子进程级防退化测试。
+- **钩子会放大失败**：`before` 钩子抛错会让整个测试文件的用例判失败，逐条 skip 根本轮不到。
+  包装器必须同时接管 `before/after/beforeEach/afterEach`。
+- **表检查要与业务查询同源**：用 `to_regclass('table')`（走同一 search_path），
+  不要用 `information_schema.tables` + 自己拼 `current_schema()` 判断，否则可能出现「检查说存在、业务查询找不到」。
+- **数据库接口限流（约 400 请求/60 秒）**：全量测试（跨进程额度测试会并发 5 个子进程）接近该量级，
+  连续快速重跑会 429。用 `bun run test:full`（串行 + 间隔 70 秒 + 限流标注）；测试侧
+  `tests/helpers/db-retry.js` 仅对 429 退避重试（请求被拒绝、未执行，重试安全）；生产 `lib/db.js` 保持不变。
+- **干净检出缺少 M3 表**：`bun run db:ensure`（`scripts/ensure-m3-tables.js`）幂等建表；
+  建表脚本与 `db/schema.js` 的一致性由 `tests/db-schema-parity.test.js` 守护（列级比对）。

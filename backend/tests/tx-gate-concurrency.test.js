@@ -8,7 +8,7 @@
 const test = require('./helpers/db-required');
 const assert = require('node:assert');
 
-const { dbQuery } = require('@surf-ai/sdk/db');
+const { dbQuery, dbQueryRetry } = require('./helpers/db-retry');
 const { reserveQuota, releaseQuota, loadBuckets } = require('../lib/tx-gate-state');
 const { TX_GATE, authorizeTx } = require('../config/tx-gate');
 const { CHAIN, CONTRACTS } = require('../config/whitelist');
@@ -48,12 +48,12 @@ test('并发 5 个请求、每分钟上限 1 笔 → 只有 1 个通过', async 
   const ns = `${NS}t1-`;
   const config = cfgWith({ maxTxPerMinute: 1, maxTxPerDay: 99, dailyMaxUsd: 9999 });
   const results = await Promise.all(
-    Array.from({ length: 5 }, () => reserveQuota({ amountUsd: 1, config, namespace: ns }))
+    Array.from({ length: 5 }, () => reserveQuota({ amountUsd: 1, config, namespace: ns, db: dbQueryRetry }))
   );
   const ok = results.filter((r) => r.ok);
   assert.equal(ok.length, 1, `应只有 1 个通过，实际 ${ok.length}：${JSON.stringify(results.map((r) => r.code || 'ok'))}`);
   assert.ok(results.filter((r) => !r.ok).every((r) => r.code === 'RATE_PER_MINUTE'));
-  const buckets = await loadBuckets({ namespace: ns });
+  const buckets = await loadBuckets({ namespace: ns, db: dbQueryRetry });
   const minute = buckets.find((b) => b.key.startsWith(`${ns}minute:`));
   assert.equal(minute.txCount, 1, '分钟桶计数必须恰好为 1（不得因竞态多算）');
 });
@@ -63,12 +63,12 @@ test('并发 5 笔各 1 USD、日上限 3 USD → 恰好 3 笔通过，总额不
   const ns = `${NS}t2-`;
   const config = cfgWith({ maxTxPerMinute: 99, maxTxPerDay: 99, dailyMaxUsd: 3 });
   const results = await Promise.all(
-    Array.from({ length: 5 }, () => reserveQuota({ amountUsd: 1, config, namespace: ns }))
+    Array.from({ length: 5 }, () => reserveQuota({ amountUsd: 1, config, namespace: ns, db: dbQueryRetry }))
   );
   const ok = results.filter((r) => r.ok);
   assert.equal(ok.length, 3, `应恰好 3 个通过，实际 ${ok.length}`);
   assert.ok(results.filter((r) => !r.ok).every((r) => r.code === 'AMOUNT_OVER_DAILY_CAP'));
-  const buckets = await loadBuckets({ namespace: ns });
+  const buckets = await loadBuckets({ namespace: ns, db: dbQueryRetry });
   const day = buckets.find((b) => b.key.startsWith(`${ns}day:`));
   assert.equal(day.amountUsd, 3, '日累计金额必须恰好等于上限，不得突破');
 });
@@ -78,7 +78,7 @@ test('并发 5 笔、每日笔数上限 2 → 恰好 2 笔通过', async (t) => 
   const ns = `${NS}t3-`;
   const config = cfgWith({ maxTxPerMinute: 99, maxTxPerDay: 2, dailyMaxUsd: 9999 });
   const results = await Promise.all(
-    Array.from({ length: 5 }, () => reserveQuota({ amountUsd: 0.1, config, namespace: ns }))
+    Array.from({ length: 5 }, () => reserveQuota({ amountUsd: 0.1, config, namespace: ns, db: dbQueryRetry }))
   );
   assert.equal(results.filter((r) => r.ok).length, 2);
   assert.ok(results.filter((r) => !r.ok).every((r) => r.code === 'RATE_PER_DAY'));
@@ -97,6 +97,11 @@ test('并发 authorizeTx（真实数据库额度 + 每分钟 1 笔）→ 只有 
     Array.from({ length: 5 }, () => authorizeTx(req, {
       stateProvider: async () => ({ dailyUsd: 0, txCountLastMinute: 0, txCountToday: 0 }),
       config, namespace: ns,
+      // 额度存储注入「限流重试」版本，避免数据库接口 429 被误报为并发逻辑失败
+      quotaStore: {
+        reserveQuota: (args) => reserveQuota({ ...args, db: dbQueryRetry }),
+        releaseQuota: (r) => releaseQuota(r, dbQueryRetry),
+      },
       record: async () => 1, // 审计写入用替身，避免污染真实审计表；真实审计路径由 tx-gate.test.js 覆盖
     }))
   );
@@ -105,7 +110,7 @@ test('并发 authorizeTx（真实数据库额度 + 每分钟 1 笔）→ 只有 
   assert.equal(allowed.length, 1, `应只有 1 笔被授权，实际 ${allowed.length}`);
   assert.equal(rejected.length, 4);
   assert.ok(rejected.every((r) => r.reason.code === 'RATE_PER_MINUTE'));
-  const buckets = await loadBuckets({ namespace: ns });
+  const buckets = await loadBuckets({ namespace: ns, db: dbQueryRetry });
   const minute = buckets.find((b) => b.key.startsWith(`${ns}minute:`));
   assert.equal(minute.txCount, 1);
 });
@@ -116,8 +121,8 @@ test('补偿释放：占用后释放 → 计数回到 0（不会永久占用额�
   const config = cfgWith({ maxTxPerMinute: 1, maxTxPerDay: 99, dailyMaxUsd: 9999 });
   const r = await reserveQuota({ amountUsd: 2, config, namespace: ns });
   assert.equal(r.ok, true);
-  await releaseQuota(r.reservation);
-  const buckets = await loadBuckets({ namespace: ns });
+  await releaseQuota(r.reservation, dbQueryRetry);
+  const buckets = await loadBuckets({ namespace: ns, db: dbQueryRetry });
   assert.ok(buckets.every((b) => b.txCount === 0 && b.amountUsd === 0), JSON.stringify(buckets));
 });
 
@@ -129,7 +134,7 @@ test('全或无（真实数据库）：日金额不足时，分钟/日笔数也�
   const r = await reserveQuota({ amountUsd: 2, config, namespace: ns });
   assert.equal(r.ok, false);
   assert.equal(r.code, 'AMOUNT_OVER_DAILY_CAP');
-  const buckets = await loadBuckets({ namespace: ns });
+  const buckets = await loadBuckets({ namespace: ns, db: dbQueryRetry });
   assert.ok(buckets.length >= 2, '桶应已创建');
   assert.ok(
     buckets.every((b) => b.txCount === 0 && b.amountUsd === 0),
@@ -150,10 +155,10 @@ test('中途失败不产生半占用，且共享会话不被污染（连接断�
   };
   await assert.rejects(() => reserveQuota({ amountUsd: 1, config, namespace: ns, db: flakyDb }), /connection terminated/);
   // 桶必须完全没有被占用
-  const buckets = await loadBuckets({ namespace: ns });
+  const buckets = await loadBuckets({ namespace: ns, db: dbQueryRetry });
   assert.ok(buckets.every((b) => b.txCount === 0 && b.amountUsd === 0), `不得半占用：${JSON.stringify(buckets)}`);
   // 会话仍可用：正常占用应当成功
-  const ok = await reserveQuota({ amountUsd: 1, config, namespace: ns });
+  const ok = await reserveQuota({ amountUsd: 1, config, namespace: ns, db: dbQueryRetry });
   assert.equal(ok.ok, true, '会话必须仍然可用（不得因中断被污染）');
 });
 
@@ -168,7 +173,7 @@ test('事务结果缺失 → 拒绝并回滚，桶保持未占用', async (t) =>
     return dbQuery(sql, params);
   };
   await assert.rejects(() => reserveQuota({ amountUsd: 1, config, namespace: ns, db: weirdDb }), /未返回结果/);
-  const buckets = await loadBuckets({ namespace: ns });
+  const buckets = await loadBuckets({ namespace: ns, db: dbQueryRetry });
   assert.ok(buckets.every((b) => b.txCount === 0 && b.amountUsd === 0), `不得半占用：${JSON.stringify(buckets)}`);
 });
 
